@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
-import {getTasksForPage, getAllTasks as getAllRegistryTasks} from '../utils/taskRegistry';
+import {getTasksForPage, getAllTasks as getAllRegistryTasks, removeTask} from '../utils/taskRegistry';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getTasks, getProjects, completeTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
@@ -153,6 +153,27 @@ export default function TaskHome({nav}: Props) {
       setProjectList(fetchedProjects || []);
       setTasks(fetchedTasks || []);
       log('TaskHome', `Loaded ${fetchedTasks?.length ?? 0} tasks, ${fetchedProjects?.length ?? 0} projects`);
+
+      // Reconcile registry: remove entries for tasks no longer in Todoist
+      try {
+        const allReg = await getAllRegistryTasks();
+        if (allReg.length > 0 && fetchedTasks && fetchedTasks.length > 0) {
+          const apiIds = new Set(fetchedTasks.map((t: any) => t.id));
+          const stale = allReg.filter((rt: any) => !apiIds.has(rt.id));
+          if (stale.length > 0) {
+            log('TaskHome', `Registry sync: removing ${stale.length} stale tasks (deleted/completed in Todoist)`);
+            for (const s of stale) {
+              await removeTask(s.id);
+            }
+            // Refresh device tasks after cleanup
+            const refreshed = await getAllRegistryTasks();
+            setDeviceTasks(refreshed);
+            log('TaskHome', `Registry sync: ${refreshed.length} tasks remain`);
+          }
+        }
+      } catch (syncErr: any) {
+        log('TaskHome', `Registry sync failed (non-fatal): ${syncErr.message}`);
+      }
     } catch (err: any) {
       logError('TaskHome', err);
       setError(err.message);

@@ -133,7 +133,6 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         await registryAddTask(task?.id, {
           content: content.trim(),
           noteFile: noteContext.filePath.split('/').pop() || '',
-          notePath: noteContext.filePath,
           pageNum: noteContext.pageNum,
         });
       }
@@ -196,33 +195,13 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     setMarking(true);
 
     try {
-      const fontSize = markAsTextFontSize;
-      const textHeight = Math.round(fontSize * 1.4);
-      const textRect = {
-        left: bounds.left,
-        top: bounds.top,
-        right: bounds.left + 200, // auto-width will resize
-        bottom: bounds.top + textHeight,
-      };
-
-      // Step 1: Re-lasso the handwriting to get a fresh lasso context.
+      // Step 1: Re-lasso the handwriting to get a fresh lasso context
+      // (original capture context expired during TaskAdd navigation)
       log('TaskAdd', `Re-lasso handwriting: ${JSON.stringify(bounds)}`);
       const reLassoHw = await (PluginCommAPI as any).lassoElements(bounds);
       log('TaskAdd', `Re-lasso handwriting result: ${JSON.stringify(reLassoHw)}`);
 
-      // Diagnostic: check what the re-lasso actually captured
-      if (reLassoHw?.success) {
-        try {
-          const captured = await PluginCommAPI.getLassoElements();
-          const count = captured?.result?.length ?? 0;
-          const types = (captured?.result || []).map((e: any) => e.type);
-          log('TaskAdd', `Re-lasso captured ${count} elements, types=[${types.join(',')}]`);
-        } catch (e: any) {
-          log('TaskAdd', `getLassoElements diagnostic failed: ${e.message}`);
-        }
-      }
-
-      // Step 2: Delete the lasso'd handwriting. Native handles cross-ref cleanup.
+      // Step 2: Delete the lasso'd handwriting
       if (reLassoHw?.success) {
         log('TaskAdd', 'Calling deleteLassoElements');
         const deleteResult = await PluginCommAPI.deleteLassoElements();
@@ -231,53 +210,45 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         log('TaskAdd', 'Re-lasso failed, skipping delete');
       }
 
-      // Step 3: Save and reload to force display refresh after deletion
-      await PluginNoteAPI.saveCurrentNote();
-      log('TaskAdd', 'saveCurrentNote after delete');
-      try {
-        const reloadResult = await PluginCommAPI.reloadFile();
-        log('TaskAdd', `reloadFile result: ${JSON.stringify(reloadResult)}`);
-      } catch (e: any) {
-        log('TaskAdd', `reloadFile failed: ${e.message}`);
-      }
-
-      // Step 4: Insert typed text where handwriting was
-      log('TaskAdd', `insertText: l=${textRect.left} t=${textRect.top} fontSize=${fontSize}`);
-      await PluginNoteAPI.insertText({
-        textContentFull: content.trim(),
-        textRect,
+      // Step 3: Insert text + supertask link in one call
+      const fontSize = markAsTextFontSize;
+      const textHeight = Math.round(fontSize * 1.4);
+      const textContent = content.trim();
+      const estCharWidth = Math.round(fontSize * 0.55);
+      const textWidth = Math.max(80, textContent.length * estCharWidth + 16);
+      const textRect = {
+        left: bounds.left,
+        top: bounds.top,
+        right: bounds.left + textWidth,
+        bottom: bounds.top + textHeight,
+      };
+      const destPath = `supertask://task/${createdTask?.id}`;
+      log('TaskAdd', `insertTextLink: l=${textRect.left} t=${textRect.top} fontSize=${fontSize} dest=${destPath}`);
+      const linkResult = await PluginNoteAPI.insertTextLink({
+        destPath,
+        destPage: 0,
+        style: 2,
+        linkType: 4,
+        rect: textRect,
         fontSize,
-        textBold: 0,
-        textAlign: 0,
-        textFrameStyle: 0,
-        textEditable: 0,
-        textItalics: 0,
-        textFrameWidthType: 1,
+        fullText: textContent,
+        showText: textContent,
+        isItalic: 0,
       });
+      log('TaskAdd', `insertTextLink: ${JSON.stringify(linkResult)}`);
 
-      // Step 5: Save after text insertion
+      // Step 4: Save to flush both delete + insert
       await PluginNoteAPI.saveCurrentNote();
-      log('TaskAdd', 'saveCurrentNote after convert');
+      log('TaskAdd', 'saveCurrentNote');
 
-      // Step 6: Re-lasso the inserted text and apply supertask:// link
+      // Re-lasso the text so user can reposition after plugin closes
       try {
         const lr = makeLassoRect(textRect);
-        log('TaskAdd', `Re-lasso text: ${JSON.stringify(lr)}`);
-        const reLassoResult = await (PluginCommAPI as any).lassoElements(lr);
-        log('TaskAdd', `Re-lasso result: ${JSON.stringify(reLassoResult)}`);
-
-        if (reLassoResult?.success) {
-          const destPath = `supertask://task/${createdTask?.id}`;
-          await PluginNoteAPI.setLassoStrokeLink({
-            destPath,
-            destPage: 0,
-            style: 2,
-            linkType: 4,
-          });
-          log('TaskAdd', `Applied supertask link to converted text: ${destPath}`);
-        }
+        log('TaskAdd', `lassoElements for reposition: ${JSON.stringify(lr)}`);
+        const lassoResult = await (PluginCommAPI as any).lassoElements(lr);
+        log('TaskAdd', `lassoElements: ${JSON.stringify(lassoResult)}`);
       } catch (e: any) {
-        log('TaskAdd', `Re-lasso/link failed: ${e.message}`);
+        log('TaskAdd', `Re-lasso failed (non-fatal): ${e.message}`);
       }
 
       setMarkDone('text');

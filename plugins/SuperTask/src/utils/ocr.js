@@ -89,55 +89,55 @@ async function getPageContext(logFn) {
   let filePath = '';
   let pageNum = 0;
   let pageSize = {width: 1404, height: 1872}; // A5X default
+  let deviceType = null;
+  let fileMachineType = null;
 
-  try {
-    const fp = await withTimeout(PluginCommAPI.getCurrentFilePath(), 3000, 'getCurrentFilePath');
-    filePath = fp?.result || '';
-    logFn(`filePath: ${filePath}`);
-  } catch (e) {
-    logFn(`getCurrentFilePath failed: ${e.message}`);
-  }
+  // Batch 1: independent fetches in parallel
+  const [fpResult, pnResult, dtResult] = await Promise.all([
+    withTimeout(PluginCommAPI.getCurrentFilePath(), 3000, 'getCurrentFilePath').catch(e => {
+      logFn(`getCurrentFilePath failed: ${e.message}`);
+      return null;
+    }),
+    withTimeout(PluginCommAPI.getCurrentPageNum(), 3000, 'getCurrentPageNum').catch(e => {
+      logFn(`getCurrentPageNum failed: ${e.message}`);
+      return null;
+    }),
+    withTimeout(PluginManager.getDeviceType(), 3000, 'getDeviceType').catch(e => {
+      logFn(`getDeviceType failed: ${e.message}`);
+      return null;
+    }),
+  ]);
 
-  try {
-    const pn = await withTimeout(PluginCommAPI.getCurrentPageNum(), 3000, 'getCurrentPageNum');
-    pageNum = pn?.result ?? 0;
-    logFn(`pageNum: ${pageNum}`);
-  } catch (e) {
-    logFn(`getCurrentPageNum failed: ${e.message}`);
-  }
+  filePath = fpResult?.result || '';
+  pageNum = pnResult?.result ?? 0;
+  deviceType = dtResult;
+  logFn(`filePath: ${filePath}`);
+  logFn(`pageNum: ${pageNum}`);
+  logFn(`getDeviceType: ${JSON.stringify(deviceType)}`);
 
+  // Batch 2: fetches that depend on filePath/pageNum
   if (filePath) {
-    try {
-      const ps = await withTimeout(PluginFileAPI.getPageSize(filePath, pageNum), 5000, 'getPageSize');
-      logFn(`getPageSize raw: ${JSON.stringify(ps)}`);
-      if (ps?.result) pageSize = ps.result;
-      else if (ps?.width && ps?.height) pageSize = ps;
-    } catch (e) {
-      logFn(`getPageSize failed, using default: ${e.message}`);
+    const [psResult, fmtResult] = await Promise.all([
+      withTimeout(PluginFileAPI.getPageSize(filePath, pageNum), 5000, 'getPageSize').catch(e => {
+        logFn(`getPageSize failed, using default: ${e.message}`);
+        return null;
+      }),
+      withTimeout(PluginFileAPI.getFileMachineType(filePath), 3000, 'getFileMachineType').catch(e => {
+        logFn(`getFileMachineType failed: ${e.message}`);
+        return null;
+      }),
+    ]);
+
+    if (psResult) {
+      logFn(`getPageSize raw: ${JSON.stringify(psResult)}`);
+      if (psResult?.result) pageSize = psResult.result;
+      else if (psResult?.width && psResult?.height) pageSize = psResult;
     }
+    fileMachineType = fmtResult;
+    logFn(`getFileMachineType: ${JSON.stringify(fileMachineType)}`);
   }
 
   logFn(`pageSize: ${pageSize.width}x${pageSize.height}`);
-
-  // Device diagnostics -- understanding the device/file type is critical for
-  // correct EMR-to-pixel mapping in recognizeElements
-  let deviceType = null;
-  let fileMachineType = null;
-  try {
-    deviceType = await withTimeout(PluginManager.getDeviceType(), 3000, 'getDeviceType');
-    logFn(`getDeviceType: ${JSON.stringify(deviceType)}`);
-  } catch (e) {
-    logFn(`getDeviceType failed: ${e.message}`);
-  }
-
-  if (filePath) {
-    try {
-      fileMachineType = await withTimeout(PluginFileAPI.getFileMachineType(filePath), 3000, 'getFileMachineType');
-      logFn(`getFileMachineType: ${JSON.stringify(fileMachineType)}`);
-    } catch (e) {
-      logFn(`getFileMachineType failed: ${e.message}`);
-    }
-  }
 
   return {filePath, pageNum, pageSize, deviceType, fileMachineType};
 }

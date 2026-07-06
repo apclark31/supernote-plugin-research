@@ -7,6 +7,23 @@
 > - Design docs: `docs/design-*.md` -- deep dives on specific features
 > - Session state: `PROGRESS.md` -- current session handoff notes
 
+## 2026-07-05 (session 31)
+
+### Gesture lifecycle: removed manual `_enabled` toggle
+**Resolution:** The `setGestureEnabled(true/false)` mechanism for managing gesture state across plugin view open/close was fundamentally fragile. Multiple code paths could dismiss the plugin view (toolbar close, noteOpener intent navigation, error recovery) and each had to remember to re-enable gestures. Missing one (e.g., `noteOpener.js` calling `closePluginView()` directly) left gestures permanently disabled. Root cause of B-012's "unreliable gestures after using the plugin." Fix: removed `_enabled` and `setGestureEnabled()` entirely. The SDK's motion listener naturally stops receiving events when the RN plugin view is visible (touch interception by the full-screen React Native view). Only `_configOff` (user settings toggle) remains. Removed `setGestureEnabled` calls from: App.tsx (6 calls), closePlugin.js, noteOpener.js, gestureDetector.js openPluginView/error handler.
+
+### F-014: Bezel swipe replaced with three-finger double tap
+**Resolution:** Bezel swipe was unreliable due to two compounding issues: (1) digitizer is least accurate at the physical bezel edge (misreported coordinates, phantom pointers), (2) the `_enabled` flag leak (see above) made it seem even worse. Replaced with three-finger double tap anywhere on canvas, twice within 800ms. No edge zone, no displacement/direction calculation. Opens task home with user's default tab. Removed: bezel edge detection, page height caching (`fetchPageHeight`), `_bezelSwipe` state, late bezel recovery path, bezel swipe config settings (target, project picker). Bezel swipe can be reconsidered now that the lifecycle fix makes all gestures reliable.
+
+### B-012: Resolved -- root cause was `_enabled` flag leak
+**Resolution:** Phantom pointer events (digitizer noise after sleep) were real but were a red herring for the primary gesture unreliability. The actual cause was the manual `_enabled` toggle getting stuck at `false` when the plugin view was dismissed via `noteOpener.js` (which called `closePluginView()` without re-enabling gestures). See gesture lifecycle entry above.
+
+### B-016: Resolved -- moot (bezel removed)
+**Resolution:** Bezel edge zone width concern is moot after replacing bezel swipe with three-finger double tap.
+
+### Changelog: session 21 gesture lifecycle entry superseded
+The session 21 "Gesture lifecycle (enable/disable)" entry documented the creation of `closePlugin()` and `setGestureEnabled()`. This session's fix supersedes that approach entirely -- the manual toggle was the root cause of persistent gesture failures.
+
 ## 2026-06-06 (session 27)
 
 ### F-014: Bezel swipe configurable target

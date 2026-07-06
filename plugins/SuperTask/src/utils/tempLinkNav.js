@@ -200,7 +200,6 @@ export async function cleanupTempLink() {
 
       if (result?.success) {
         await clearPending();
-        await reloadIfOnPage(sourcePath, sourcePage);
         log('TempLink', 'Cleanup complete (by numInPage)');
         return;
       }
@@ -234,10 +233,6 @@ export async function cleanupTempLink() {
     log('TempLink', `deleteElements(scan) result: ${JSON.stringify(result)}`);
     await clearPending();
 
-    if (result?.success) {
-      await reloadIfOnPage(sourcePath, sourcePage);
-    }
-
     log('TempLink', `Cleanup complete (removed ${toDelete.length} elements)`);
   } catch (e) {
     // Non-fatal -- link may already be gone
@@ -246,21 +241,3 @@ export async function cleanupTempLink() {
   }
 }
 
-/**
- * If we're currently viewing the source page, reload to reflect deletion.
- */
-async function reloadIfOnPage(path, page) {
-  try {
-    const [fpResult, pageResult] = await Promise.all([
-      PluginCommAPI.getCurrentFilePath(),
-      PluginCommAPI.getCurrentPageNum(),
-    ]);
-    if (fpResult?.result === path && pageResult?.result === page) {
-      await PluginCommAPI.reloadFile();
-      log('TempLink', 'Reloaded current page after cleanup');
-    }
-  } catch (e) {
-    // Non-fatal
-    log('TempLink', `Reload check failed: ${e.message}`);
-  }
-}

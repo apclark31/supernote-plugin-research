@@ -17,7 +17,7 @@ import {
 } from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {log} from '../utils/debug';
-import {openNote, STRATEGIES} from '../utils/noteOpener';
+import {openNote} from '../utils/noteOpener';
 
 type Props = {
   nav: {pop: () => void};
@@ -487,28 +487,23 @@ export default function Diagnostics({nav}: Props) {
     }
   };
 
-  const testIntentStrategy = async (strategyId: number) => {
+  const testOpenNote = async () => {
     const path = await getNotePath();
     if (!path) {
-      setNavResult(`Intent #${strategyId}: No note path available`);
+      setNavResult('openNote: No note path available');
       return;
     }
-    // Use a different note for the test -- find another .note in the same directory
-    const dir = path.substring(0, path.lastIndexOf('/') + 1);
-    const strategy = STRATEGIES.find(s => s.id === strategyId);
-    setNavResult(`Intent #${strategyId} (${strategy?.label}): trying...`);
-    log('NavTest', `Intent strategy ${strategyId} (${strategy?.label}) path=${path}`);
+    setNavResult('openNote: opening current note at page 1...');
+    log('NavTest', `openNote path=${path} page=1`);
 
-    // Close plugin first, then fire intent
-    closePlugin();
-    setTimeout(async () => {
-      try {
-        const result = await openNote(path, strategyId);
-        log('NavTest', `Intent #${strategyId} result: ${result}`);
-      } catch (e: any) {
-        log('NavTest', `Intent #${strategyId} ERROR: ${e.message}`);
-      }
-    }, 300);
+    // openNote handles closePluginView internally (150ms delay)
+    const result = await openNote(path, 1);
+    if (result.success) {
+      log('NavTest', 'openNote: success');
+    } else {
+      log('NavTest', `openNote: FAILED ${result.error}`);
+      setNavResult(`openNote failed: ${result.error}`);
+    }
   };
 
   const testReplaceElements = async (currentPath: string, page: number) => {
@@ -609,13 +604,11 @@ export default function Diagnostics({nav}: Props) {
         ) : (
           <Text style={styles.navHint}>Test APIs for opening notes. Open a note with supertask links first.</Text>
         )}
-        <Text style={[styles.navTitle, {marginTop: 8}]}>Intent Strategies (closes plugin)</Text>
+        <Text style={[styles.navTitle, {marginTop: 8}]}>Intent Navigation (closes plugin)</Text>
         <View style={styles.navButtons}>
-          {STRATEGIES.map(s => (
-            <Pressable key={s.id} style={styles.navBtn} onPress={() => testIntentStrategy(s.id)}>
-              <Text style={styles.navBtnText}>{s.id}: {s.label}</Text>
-            </Pressable>
-          ))}
+          <Pressable style={styles.navBtn} onPress={testOpenNote}>
+            <Text style={styles.navBtnText}>openNote (p.1)</Text>
+          </Pressable>
         </View>
       </View>
 

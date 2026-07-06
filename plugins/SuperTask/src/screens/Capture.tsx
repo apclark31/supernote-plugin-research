@@ -89,23 +89,20 @@ export default function Capture({mode, nav}: Props) {
       const config = await loadConfig();
       addTrace(`Config loaded, hasToken=${!!config.apiToken}`);
 
-      // Run OCR
-      const captureResult = mode === 'lasso' ? await captureLasso() : await captureDocText();
+      // Run OCR + fetch projects in parallel (projects are independent)
+      addTrace('Starting capture + project fetch in parallel...');
+      const capturePromise = mode === 'lasso' ? captureLasso() : captureDocText();
+      const projectsPromise = withTimeout(getProjects(), 8000, 'getProjects').catch((err: any) => {
+        addTrace(`Project fetch failed (non-fatal): ${err.message}`);
+        return [] as any[];
+      });
+
+      const [captureResult, projects] = await Promise.all([capturePromise, projectsPromise]);
+      addTrace(`Got ${(projects as any[])?.length ?? 0} projects`);
 
       if (!captureResult) {
         addTrace('Capture returned null (error already shown)');
         return;
-      }
-
-      // Fetch projects (non-blocking -- OK if it fails)
-      addTrace('Fetching projects...');
-      let projects: any[] = [];
-      try {
-        projects = await withTimeout(getProjects(), 8000, 'getProjects');
-        addTrace(`Got ${projects?.length ?? 0} projects`);
-      } catch (err: any) {
-        addTrace(`Project fetch failed (non-fatal): ${err.message}`);
-        projects = [];
       }
 
       addTrace('Navigating to TaskAdd...');

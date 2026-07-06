@@ -2,19 +2,23 @@ package com.supertask
 
 import android.content.ComponentName
 import android.content.Intent
-import android.net.Uri
 import android.util.Log
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.ratta.supernote.pluginlib.api.HostContext
-import java.io.File
 
 /**
- * Native module to experiment with opening .note files in the editor.
- * Tries multiple Intent strategies since the SDK's openFilePath only
- * opens the file manager.
+ * Native module for cross-note navigation via Android Intents.
+ *
+ * Uses explicit component targeting discovered by AgP42/supernote-dashboard (MIT).
+ * Key findings:
+ * - Target NoteInsidePagesActivity (not NoteMainActivity) for the editor
+ * - Use "file_path" extra (not "only_open_file")
+ * - Use reactApplicationContext (not HostContext) to avoid SDK interception
+ * - No URI/FileProvider needed -- pass path as plain string extra
+ *
+ * See docs/design-native-intents.md for full rationale.
  */
 class NoteOpenerModule(reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -26,127 +30,83 @@ class NoteOpenerModule(reactContext: ReactApplicationContext) :
     }
 
     /**
-     * Try opening a .note file using different Intent strategies.
+     * Open a .note file in the editor at a specific page.
      * @param path Full path to the .note file
-     * @param strategy Which approach to try (0-5)
+     * @param page 1-based page number (0 = last-used page)
      */
     @ReactMethod
-    fun openNote(path: String, strategy: Int, promise: Promise) {
-        Log.i(TAG, "openNote path=$path strategy=$strategy")
+    fun openNote(path: String, page: Int, promise: Promise) {
+        Log.i(TAG, "openNote path=$path page=$page")
         try {
-            when (strategy) {
-                0 -> strategyGenericView(path)
-                1 -> strategyNoteApp(path)
-                2 -> strategyFileManagerFlags(path)
-                3 -> strategyDataUri(path)
-                4 -> strategyNoteAppAlt(path)
-                5 -> strategyBroadcast(path)
-                else -> {
-                    promise.reject("INVALID", "Unknown strategy: $strategy")
-                    return
-                }
+            val intent = Intent().apply {
+                component = ComponentName(
+                    "com.ratta.supernote.note",
+                    "com.ratta.supernote.note.view.NoteInsidePagesActivity"
+                )
+                putExtra("file_path", path)
+                if (page > 0) putExtra("page", page)
+                action = Intent.ACTION_VIEW
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            promise.resolve("strategy $strategy dispatched for $path")
+            reactApplicationContext.startActivity(intent)
+            promise.resolve(true)
         } catch (e: Exception) {
-            Log.e(TAG, "openNote failed strategy=$strategy", e)
-            promise.reject("ERROR", "strategy $strategy failed: ${e.message}", e)
+            Log.e(TAG, "openNote failed", e)
+            promise.reject("OPEN_NOTE_FAILED", "${e.javaClass.simpleName}: ${e.message}", e)
         }
     }
 
     /**
-     * Strategy 0: Generic ACTION_VIEW, no component set.
-     * Let Android resolve which app handles .note files.
+     * Open a folder in the Supernote file manager.
+     * @param folderPath Full path to the folder
      */
-    private fun strategyGenericView(path: String) {
-        Log.i(TAG, "Strategy 0: generic ACTION_VIEW")
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(Uri.fromFile(File(path)), "application/octet-stream")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    @ReactMethod
+    fun openFolder(folderPath: String, promise: Promise) {
+        Log.i(TAG, "openFolder path=$folderPath")
+        try {
+            val intent = Intent().apply {
+                component = ComponentName(
+                    "com.ratta.supernote.inbox",
+                    "com.ratta.supernote.explorer.FileManagerMainActivity"
+                )
+                putExtra("folder_path", folderPath)
+                putExtra("source_type", 2)
+                action = Intent.ACTION_VIEW
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            reactApplicationContext.startActivity(intent)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "openFolder failed", e)
+            promise.reject("OPEN_FOLDER_FAILED", "${e.javaClass.simpleName}: ${e.message}", e)
         }
-        HostContext.getInstance().startActivity(intent)
     }
 
     /**
-     * Strategy 1: Target NOTE app directly.
-     * Supernote NOTE app package is likely com.ratta.supernote.note
+     * Open a PDF/document in the Supernote Document viewer.
+     * Note: page extra may be ignored by the viewer (always opens last-used page).
+     * @param path Full path to the .pdf file
+     * @param page 1-based page number (0 = last-used page)
      */
-    private fun strategyNoteApp(path: String) {
-        Log.i(TAG, "Strategy 1: target NOTE app")
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setComponent(ComponentName(
-                "com.ratta.supernote.note",
-                "com.ratta.supernote.note.NoteMainActivity"
-            ))
-            putExtra("only_open_file", path)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    @ReactMethod
+    fun openDocument(path: String, page: Int, promise: Promise) {
+        Log.i(TAG, "openDocument path=$path page=$page")
+        try {
+            val intent = Intent().apply {
+                component = ComponentName(
+                    "com.supernote.document",
+                    "com.supernote.document.MainActivity"
+                )
+                putExtra("file_path", path)
+                if (page > 0) putExtra("page", page)
+                action = Intent.ACTION_VIEW
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            reactApplicationContext.startActivity(intent)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "openDocument failed", e)
+            promise.reject("OPEN_DOC_FAILED", "${e.javaClass.simpleName}: ${e.message}", e)
         }
-        HostContext.getInstance().startActivity(intent)
-    }
-
-    /**
-     * Strategy 2: Same as SDK openFilePath but with CLEAR_TOP + NEW_TASK flags.
-     * The original has no flags set, which may cause activity stacking issues.
-     */
-    private fun strategyFileManagerFlags(path: String) {
-        Log.i(TAG, "Strategy 2: file manager with flags")
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setComponent(ComponentName(
-                "com.ratta.supernote.inbox",
-                "com.ratta.supernote.explorer.FileManagerMainActivity"
-            ))
-            putExtra("only_open_file", path)
-            putExtra("source_type", 2)
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
-            )
-        }
-        HostContext.getInstance().startActivity(intent)
-    }
-
-    /**
-     * Strategy 3: ACTION_VIEW with data URI, no component.
-     * Uses file:// URI with wildcard MIME type.
-     */
-    private fun strategyDataUri(path: String) {
-        Log.i(TAG, "Strategy 3: data URI wildcard")
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(Uri.fromFile(File(path)), "*/*")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        HostContext.getInstance().startActivity(intent)
-    }
-
-    /**
-     * Strategy 4: Target NOTE app with alternative class names.
-     * Try com.ratta.supernote as package with various activity names.
-     */
-    private fun strategyNoteAppAlt(path: String) {
-        Log.i(TAG, "Strategy 4: target NOTE app (alt)")
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setComponent(ComponentName(
-                "com.ratta.supernote",
-                "com.ratta.supernote.NoteMainActivity"
-            ))
-            putExtra("only_open_file", path)
-            putExtra("file_path", path)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
-        HostContext.getInstance().startActivity(intent)
-    }
-
-    /**
-     * Strategy 5: Broadcast intent instead of activity.
-     * Some Supernote system functions may listen for broadcasts.
-     */
-    private fun strategyBroadcast(path: String) {
-        Log.i(TAG, "Strategy 5: broadcast")
-        val intent = Intent("com.ratta.supernote.ACTION_OPEN_FILE").apply {
-            putExtra("file_path", path)
-            putExtra("only_open_file", path)
-            addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
-        }
-        reactApplicationContext.sendBroadcast(intent)
     }
 }

@@ -76,6 +76,16 @@ Key SDK source files to check:
 - **Ratta's official sticker demo** uses `@react-native-async-storage/async-storage` for persistent config storage (native module). There is no built-in pure-JS file write mechanism in the SDK.
 - **ADB is locked down** -- `adb devices` sees the Supernote, but `shell`, `logcat`, `push`, `pull` all return "error: not support command"
 
+### Native intent navigation (from AgP42/supernote-dashboard, MIT)
+- **Opening a note at a specific page**: Target `com.ratta.supernote.note.view.NoteInsidePagesActivity` with `Intent.ACTION_VIEW`, extras `file_path` (String) and `page` (int, 1-based). Use `reactApplicationContext.startActivity()`, NOT `HostContext.getInstance()`. Flag: `FLAG_ACTIVITY_NEW_TASK` only. No URI data, no FileProvider needed.
+- **Why SuperTask's previous attempt failed**: Used wrong activity (`NoteMainActivity`), wrong extra (`only_open_file`), and `HostContext` (SDK interception layer). All strategies opened file manager, not editor.
+- **After launching intent**: Wait ~150ms, then `PluginManager.closePluginView()` so the target note is visible (not covered by plugin).
+- **Opening a folder**: Target `com.ratta.supernote.inbox/com.ratta.supernote.explorer.FileManagerMainActivity` with `folder_path` extra, `source_type = 2`.
+- **Opening a PDF**: Target `com.supernote.document/com.supernote.document.MainActivity` with `file_path` extra. `page` extra may be ignored by viewer.
+- **Page numbering**: SDK APIs return 0-based pages. Intent `page` extra is 1-based. Convert: `intent_page = api_page + 1`.
+- **Native writeFile workaround**: `java.io.FileWriter` in a native module (5 lines). Dashboard plugin uses this for config persistence. Could replace RNFS dependency.
+- **Design doc**: `plugins/SuperTask/docs/design-native-intents.md`
+
 ### Learnings from SmartGestures development
 - `event_pen_up` payload elements can't be read directly; must call `getLastElement()`
 - Stroke points are in EMR coordinates (digitizer space, axes rotated vs screen)

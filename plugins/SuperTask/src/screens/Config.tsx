@@ -52,12 +52,8 @@ export default function Config({onNavigate, nav}: Props) {
   const [debugMode, setDebugMode] = useState(false);
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
   const [lassoGestureInput, setLassoGestureInput] = useState('finger');
-  const [bezelSwipeTarget, setBezelSwipeTarget] = useState('default');
-  const [bezelSwipeProjectId, setBezelSwipeProjectId] = useState<string | null>(null);
-  const [bezelSwipeProjectName, setBezelSwipeProjectName] = useState<string | null>(null);
   const [showTokenInfo, setShowTokenInfo] = useState(false);
   const [showGestureInfo, setShowGestureInfo] = useState(false);
-  const [showBezelProjectPicker, setShowBezelProjectPicker] = useState(false);
 
   useEffect(() => {
     log('Config', 'MOUNT -- loading saved config');
@@ -79,9 +75,6 @@ export default function Config({onNavigate, nav}: Props) {
         : config.lassoGestureInput === 'pen-lasso' ? 'pen-lasso'
         : 'finger'
       );
-      if (config.bezelSwipeTarget) setBezelSwipeTarget(config.bezelSwipeTarget);
-      if (config.bezelSwipeProjectId) setBezelSwipeProjectId(config.bezelSwipeProjectId);
-      if (config.bezelSwipeProjectName) setBezelSwipeProjectName(config.bezelSwipeProjectName);
 
       setConfigSource(getConfigSource());
 
@@ -154,9 +147,6 @@ export default function Config({onNavigate, nav}: Props) {
       debugMode,
       markAsTextFontSize,
       lassoGestureInput,
-      bezelSwipeTarget,
-      bezelSwipeProjectId,
-      bezelSwipeProjectName,
     });
     setSaving(false);
     setSaveStatus(saved ? 'Saved to device' : 'Saved (session only)');
@@ -345,44 +335,6 @@ export default function Config({onNavigate, nav}: Props) {
       </View>
       <Text style={s.hint}>  Long press on a linked task always works (any mode)</Text>
 
-      <Text style={s.sectionTitle}>Bezel swipe opens</Text>
-      <Text style={s.hint}>Swipe up from the bottom edge with 2+ fingers</Text>
-      <View style={s.radioColumn}>
-        <Pressable style={s.radioRow} onPress={() => setBezelSwipeTarget('default')}>
-          <Text style={s.radio}>{bezelSwipeTarget === 'default' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Default tab</Text>
-        </Pressable>
-        <Pressable style={s.radioRow} onPress={() => setBezelSwipeTarget('today')}>
-          <Text style={s.radio}>{bezelSwipeTarget === 'today' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Today</Text>
-        </Pressable>
-        <Pressable style={s.radioRow} onPress={() => setBezelSwipeTarget('upcoming')}>
-          <Text style={s.radio}>{bezelSwipeTarget === 'upcoming' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Upcoming</Text>
-        </Pressable>
-        <Pressable style={s.radioRow} onPress={() => setBezelSwipeTarget('projects')}>
-          <Text style={s.radio}>{bezelSwipeTarget === 'projects' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Projects</Text>
-        </Pressable>
-        <View style={s.inlineRow}>
-          <Pressable style={s.radioRow} onPress={() => setBezelSwipeTarget('project')}>
-            <Text style={s.radio}>{bezelSwipeTarget === 'project' ? '(*)' : '( )'}</Text>
-            <Text style={s.radioLabel}>Specific project</Text>
-          </Pressable>
-          <Pressable
-            style={[s.btnSmall, bezelSwipeTarget !== 'project' && s.btnDisabled]}
-            onPress={() => {
-              setBezelSwipeTarget('project');
-              log('Config', `Bezel project picker: ${projects.length} projects available`);
-              setShowBezelProjectPicker(true);
-            }}>
-            <Text style={[s.btnSmallText, bezelSwipeTarget !== 'project' && s.btnDisabledText]}>
-              {bezelSwipeProjectName || 'Select'}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-
       <Text style={s.sectionTitle}>Mark as text font size</Text>
       <View style={s.inlineRow}>
         <Text style={s.sizeLabel}>Size:</Text>
@@ -541,38 +493,6 @@ export default function Config({onNavigate, nav}: Props) {
         </Pressable>
       )}
 
-      {/* Bezel swipe project picker */}
-      {showBezelProjectPicker && (
-        <Pressable style={s.overlayCenter} onPress={() => setShowBezelProjectPicker(false)}>
-          <Pressable style={s.overlayModal} onPress={() => {}}>
-            <Text style={s.overlayTitle}>Select project</Text>
-            <Text style={s.overlayHint}>Bezel swipe will open this project directly.</Text>
-            <View style={s.overlaySeparator} />
-            {projects.length === 0 ? (
-              <Text style={s.hint}>No projects loaded. Check your API token in Connections.</Text>
-            ) : (
-              <ScrollView style={{maxHeight: 400}}>
-                <View style={s.buttonGrid}>
-                  {projects.map(p => (
-                    <Pressable
-                      key={p.id}
-                      style={[s.gridBtn, bezelSwipeProjectId === p.id && s.gridBtnActive]}
-                      onPress={() => { setBezelSwipeProjectId(p.id); setBezelSwipeProjectName(p.name); setShowBezelProjectPicker(false); }}>
-                      <Text style={[s.gridBtnText, bezelSwipeProjectId === p.id && s.gridBtnTextActive]}>
-                        {p.name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </ScrollView>
-            )}
-            <Pressable style={s.overlayCloseBtn} onPress={() => setShowBezelProjectPicker(false)}>
-              <Text style={s.overlayCloseBtnText}>Cancel</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      )}
-
       {/* Save toast */}
       {saveStatus ? (
         <View style={s.toast}>
@@ -712,7 +632,6 @@ const s = StyleSheet.create({
   toggleTextActive: {color: '#ffffff'},
 
   // Radio
-  radioColumn: {flexDirection: 'column'},
   radioRow: {flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6},
   radio: {fontSize: 15, fontWeight: '700', color: '#000000', fontFamily: 'monospace'},
   radioLabel: {fontSize: 15, color: '#000000'},

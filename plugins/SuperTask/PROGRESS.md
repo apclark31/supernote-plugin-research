@@ -4,7 +4,249 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 27 complete.** Bezel swipe config, convert-to-text optimization, project filter fix. Released v0.2.0-beta.
+**Session 31 complete.** Three-finger double tap replaces bezel swipe. Major architectural fix: removed manual gesture enable/disable lifecycle (`_enabled` flag + `setGestureEnabled`). The `_enabled` flag leak was the root cause of gesture unreliability across sessions (B-012 was a red herring). Gestures now rely on the SDK's natural touch interception -- no manual toggle needed.
+
+## Session 31 -- Three-finger double tap, gesture lifecycle fix
+
+Branch: `main`
+
+### What's done
+
+1. **Three-finger double tap (replaces bezel swipe F-014) -- CONFIRMED ON-DEVICE**
+   - Removed bezel swipe: edge zone detection, page height caching, `fetchPageHeight`, `_bezelSwipe` state, late bezel recovery, `onBezelSwipeEnd`, `handleBezelSwipe`
+   - Added three-finger double tap: `_multiTapTracking` tracks pointer count during multi-touch, `_threeFingerTap` records first tap timestamp, `onMultiTapEnd` evaluates two 3+ pointer taps within 800ms
+   - Opens task home with user's `defaultTab` setting
+   - Removed bezel swipe settings from Config.tsx (target selector, project picker overlay) and config.js (3 default keys)
+   - First on-device test: 245ms between taps, immediate recognition
+
+2. **Gesture lifecycle fix -- ROOT CAUSE of B-012 found**
+   - **Discovery**: after three-finger double tap worked initially, navigating to a task detail and using "View Note" (intent navigation) left gestures permanently disabled. `noteOpener.js` called `closePluginView()` directly without `setGestureEnabled(true)`.
+   - **Realization**: this was the same bug that made bezel swipe "unreliable" across multiple sessions. B-012 (phantom pointers) was real data but a red herring for the primary issue.
+   - **Architectural fix**: removed `_enabled` flag and `setGestureEnabled()` entirely. The SDK's motion listener naturally stops receiving events when the RN plugin view is visible (full-screen touch interception). Only `_configOff` (user settings) remains.
+   - Removed `setGestureEnabled` calls from: App.tsx (6), closePlugin.js (1), noteOpener.js (3), gestureDetector.js (2)
+   - `openPluginView()` now calls `cancelGesture()` to clear stale state before showing the view. No re-enable needed -- events resume automatically when the view is dismissed.
+
+3. **Documentation updates**
+   - Updated tracker: F-014 (bezel -> three-finger), B-012 (resolved, root cause), B-016 (resolved, moot), B-018 (new: speed), F-020 (backlog: floating bubble)
+   - Updated changelog: gesture lifecycle fix, three-finger double tap, B-012/B-016 resolution
+   - Superseded session 21 changelog entry (which created the `setGestureEnabled` mechanism)
+
+### On-device test results (2026-07-05)
+
+- **Three-finger double tap: SUCCESS.** 245ms detection. Opens task home immediately.
+- **Gesture persistence after intent navigation: SUCCESS.** After "View Note" (noteOpener), three-finger double tap still works on return to note.
+- **Speed**: noticeable latency between gesture detection and task home render. Plugin view show + API fetch adds perceived delay. Tracked as B-018 for next session.
+
+### What's NOT done (carried forward)
+
+- B-018: Investigate three-finger double tap perceived speed
+- B-015: External user getElements diagnostics
+- B-017: TaskHome silent refresh spam
+- T-004 remaining: on-device test of SDK optimizations
+- B-004: Today/Upcoming tab filtering
+- F-017 phase 2 cleanup: delete `tempLinkNav.js`
+- Bezel swipe could be reconsidered as an additional gesture now that the lifecycle fix makes all gestures reliable
+
+### Next session
+
+- B-018: speed investigation (can `showPluginView` be called earlier? cached render?)
+- Consider re-adding bezel swipe as an option (the lifecycle fix eliminated its primary failure mode)
+- B-015: external user diagnostics
+- Commit all changes
+
+### Builds
+
+- Build 1: Three-finger double tap (bezel swipe replaced)
+- Build 2: + noteOpener gesture re-enable fix (partial, superseded)
+- Build 3: + Full gesture lifecycle fix (removed `_enabled` entirely)
+
+### Code changes
+
+- `src/utils/gestureDetector.js` -- replaced bezel swipe with three-finger double tap, removed `_enabled` and `setGestureEnabled`, simplified to `_configOff` only
+- `src/utils/config.js` -- removed `bezelSwipeTarget`, `bezelSwipeProjectId`, `bezelSwipeProjectName` defaults
+- `src/screens/Config.tsx` -- removed bezel swipe settings section, project picker overlay, related state
+- `src/utils/closePlugin.js` -- removed `setGestureEnabled` import and call
+- `src/utils/noteOpener.js` -- removed `setGestureEnabled` import and calls (no longer needed)
+- `App.tsx` -- removed `setGestureEnabled` import and all 6 call sites
+- `docs/tracker.md` -- updated F-014, B-012, B-016, added B-018, F-020
+- `docs/changelog.md` -- added session 31 entries
+
+## Session 30 -- Native intent navigation, registry sync, dashboard research
+
+Branch: `main`
+
+### What's done
+
+1. **F-017: Native intent navigation (phases 1-2) -- CONFIRMED ON-DEVICE**
+   - Researched [AgP42/supernote-dashboard](https://github.com/AgP42/supernote-dashboard) (MIT) plugin which solved cross-note navigation via Android Intents.
+   - Identified why SuperTask's previous attempt (session 15) failed: wrong activity class (`NoteMainActivity` vs `NoteInsidePagesActivity`), wrong extras (`only_open_file` vs `file_path`), `HostContext` interception (vs `reactApplicationContext`), FileProvider crash.
+   - Rewrote `NoteOpenerModule.kt` with proven intent pattern. Added `openNote(path, page)`, `openFolder(path)`, `openDocument(path, page)`.
+   - Updated `noteOpener.js` with clean API: each method handles `closePluginView()` internally (150ms delay).
+   - Replaced `createTempLink` in `TaskDetail.tsx` with `openNote`. Same-note case now also jumps to exact page (was just closing with a hint).
+   - Removed all `cleanupTempLink` calls from `App.tsx` (mount, navigate callback, button re-show). No cleanup needed since no artifacts are created.
+   - Updated Diagnostics screen: replaced 6 strategy test buttons with single "openNote (p.1)" button.
+   - `tempLinkNav.js` retained as dead code for one release cycle (nothing imports it).
+   - Design doc: `docs/design-native-intents.md`
+
+2. **Registry sync -- stale task cleanup**
+   - Device tab showed 22 registry tasks vs 12 in Todoist (10 stale from deleted/completed tasks).
+   - Added reconciliation in `TaskHome.tsx` `fetchData`: after API fetch, compare registry IDs against Todoist response, remove any not found.
+   - Logs: `Registry sync: removing N stale tasks (deleted/completed in Todoist)`
+
+3. **Documentation**
+   - Created `docs/design-native-intents.md` -- full design doc with failure analysis, working patterns, phased plan.
+   - Added F-017, F-018, F-019 to tracker.
+   - Updated `docs/ratta-feedback.md` with community workaround for openFilePath.
+   - Added native intent reference section to `CLAUDE.md`.
+
+### On-device test results (2026-07-05)
+
+- **openNote intent: SUCCESS.** Navigates directly to target note and page. No artifacts, no user interaction required. Confirmed both same-note and cross-note cases.
+- **Registry sync: SUCCESS.** Stale tasks cleaned up on first TaskHome open.
+- **Bezel swipe: INTERMITTENT.** Works after fresh install, then becomes unreliable during the same session. Logs show the gesture detector correctly rejects attempts (zero displacement from phantom pointers, insufficient travel), but it makes the gesture feel broken. Successfully fired twice in the log session (2-finger and 3-finger), but required multiple attempts. This is the existing B-012 phantom pointer issue, not a regression.
+
+### Bezel swipe reliability decision needed
+
+The bezel swipe gesture (F-014) has been persistently unreliable across multiple sessions and devices:
+- **B-012**: Phantom pointer events after device wake report identical coordinates, causing 0px displacement rejection.
+- **Multiple attempts needed**: Users must try 3-4 times before the gesture registers. Works once, then stops for a while.
+- **Touch panel inconsistency**: Different devices report different pointer counts (3 on dev, 5 on external user).
+
+**Options for next session:**
+1. **Keep debugging** -- Add more diagnostics around the phantom pointer pattern, try ignoring zero-displacement pointers, debounce.
+2. **Replace the gesture** -- Switch to something more reliable: toolbar button (guaranteed to work), long-press on a specific screen region, or the floating bubble pattern from the dashboard plugin (always-visible, survives plugin close).
+3. **Make it optional with a better default** -- Keep bezel swipe as an option but add a more reliable primary entry point.
+
+### What's NOT done (carried from session 29)
+
+- Deploy diagnostic build to external user for B-015 (getElements errors)
+- B-016: Widen bezel zone from 1% to 3-5%
+- B-017: TaskHome silent refresh spam
+- T-004 remaining: on-device test of SDK optimizations (code changes exist, not built)
+- B-004: Today/Upcoming tab filtering
+
+### Next session
+
+- **Decide on bezel swipe**: debug further or replace the gesture
+- B-015: external user getElements diagnostics
+- Consider committing all outstanding changes (sessions 28-30 have accumulated uncommitted work)
+- F-017 phase 2 cleanup: delete `tempLinkNav.js` if intent navigation is stable after another session
+
+### Builds
+
+- Build 1: Native intent navigation (NoteOpenerModule rewrite, tempLink removal)
+- Build 2: + Registry sync (stale task cleanup)
+
+### Code changes
+
+- `android/app/src/main/java/com/supertask/NoteOpenerModule.kt` -- complete rewrite: 6 experimental strategies replaced with single proven approach
+- `src/utils/noteOpener.js` -- clean API with `openNote`, `openFolder`, `openDocument`
+- `src/screens/TaskDetail.tsx` -- `createTempLink` replaced with `openNote` intent
+- `App.tsx` -- removed `cleanupTempLink` import and all 3 call sites
+- `src/screens/Diagnostics.tsx` -- replaced strategy test buttons with single openNote test
+- `src/screens/TaskHome.tsx` -- added registry sync reconciliation in `fetchData`
+- `docs/design-native-intents.md` -- new design doc
+- `docs/tracker.md` -- added F-017, F-018, F-019
+- `docs/ratta-feedback.md` -- added community workaround discovery
+- `CLAUDE.md` -- added native intent navigation reference section
+
+## Session 29 -- External user log analysis, getElements diagnostics
+
+Branch: `main`
+
+### What's done
+
+1. **Analyzed external user logs (different device/build)**
+   - User running session 27 build (v0.2.0) without session 28 fixes.
+   - Confirmed bezel swipe would have worked with 2500ms threshold: one attempt had 2168ms duration, 1435px displacement, 5 pointers -- failed only on the 1200ms limit.
+
+2. **Improved getElements diagnostic logging (B-015)**
+   - Pre-scan `getElements` failure now logs error code, error message, page number, success value, and result type.
+   - Previous log was just `"Pre-scan: getElements failed"` with no diagnostic detail.
+   - File: `src/utils/gestureDetector.js` line 590-592.
+
+### Key findings from external user logs
+
+- **B-015: `getElements` fails on EVERY pre-scan call.** Across multiple notes and pages, every `getElements` call returns a failure. Long-press-to-view-task is completely broken for this user. Root cause unknown -- need the error code from the improved logging. Could be device/firmware specific, note format, or permissions.
+- **Touch panel reports up to 5 simultaneous pointers** (PTR_DOWN[4], ptrs=5). Contradicts earlier finding that Supernote caps at 3. Different device model or firmware. Our `maxPointers >= 2` check still works correctly.
+- **B-016: Accidental lasso near bezel zone.** User touches at y=1848-1850 are just outside the 1% bezel zone (threshold is y > 1853). These enter the standard gesture path, trigger wasted pre-scans, and occasionally enter lasso mode (12x40px, 35x57px -- too small, correctly rejected). Widening the bezel zone from 1% to 3-5% would prevent this.
+- **B-017: TaskHome silent refresh spam.** Three "silent refresh" cycles fired in 3 seconds (5:02:49-5:02:52), each making 2 API calls (tasks + projects). Likely a re-render loop.
+- **Gesture mode is `finger`** (not `pen-lasso`) -- user sees "PEN during FINGER hold -- cancelling" which blocks pen interaction during gestures.
+- **Event count at #57183+** -- motion listener has been running continuously for a very long session without restart. No apparent issues from this, just notable.
+- **User has 14 projects, 26 tasks** -- larger dataset than dev testing (5 projects, 13 tasks). API calls all succeed.
+- **Plugin reinstall required** -- Alex confirmed bezel gesture didn't work until full uninstall/reinstall. Supernote may cache stale plugin bytecode during upgrade-in-place.
+
+### What needs testing
+
+- Session 28 build with diagnostic improvement deployed to external user
+- External user's getElements error codes (once new build is deployed)
+- Session 28 bezel fixes (2500ms threshold + late recovery) on both devices
+
+### Next session
+
+- Deploy session 28 + diagnostic build to external user, collect new logs
+- Based on getElements error code, diagnose and fix B-015
+- Consider widening bezel zone from 1% to 3-5% (B-016)
+- Investigate TaskHome silent refresh spam (B-017)
+- T-004 remaining: on-device test of SDK optimizations
+- B-004 remaining: Today/Upcoming tab filtering
+
+### Builds
+
+- No new build this session (code change only: diagnostic logging)
+
+## Session 28 -- SDK optimization (T-004), bezel swipe audit
+
+Branch: `main`
+
+### What's done
+
+1. **T-004: SDK call optimization pass (4 locations)**
+   - `TaskAdd.tsx` handleConvertToText: replaced 8-call hybrid pattern with `insertTextLink` (5 calls). Removed intermediate `saveCurrentNote`, `reloadFile`, diagnostic `getLassoElements`. Matches QuickAdd's optimized pattern.
+   - `tempLinkNav.js`: removed `reloadIfOnPage` function and both call sites. Plugin view covers the note during cleanup, reload is invisible. Saves up to 3 bridge calls per temp link cleanup.
+   - `ocr.js` getPageContext: 5 sequential SDK calls batched into 2 parallel groups via `Promise.all`. Batch 1: getCurrentFilePath + getCurrentPageNum + getDeviceType. Batch 2: getPageSize + getFileMachineType. Each has per-call `.catch()` for error handling.
+   - `Capture.tsx` runCapture: project fetch (`getProjects`) parallelized with lasso capture via `Promise.all`. Projects load while OCR runs.
+   - `TaskAdd.tsx`: fixed pre-existing TS error (removed extra `notePath` param in `registryAddTask` call).
+
+2. **Bezel swipe duration fix: 1200ms -> 2500ms**
+   - Session B log revealed 13 consecutive bezel swipe failures, all "too slow". Bezel zone detection was working (y=1868-1871), displacement was strong (280-846px), but natural 3-finger swipe takes 1400-2000ms. The 1200ms limit was too strict.
+   - Increased `BEZEL_SWIPE_MAX_MS` from 1200 to 2500.
+
+3. **Bezel late recovery (coordinate misreporting workaround)**
+   - Session A log showed the digitizer misreporting initial DOWN at y=884 instead of y~1860 during 3-finger bezel entry. The bezel zone check failed, gesture entered standard path, multi-touch cancelled it, pre-scan bridge calls wasted.
+   - PTR_DOWN now retroactively enters bezel tracking instead of cancelling. Recovery mode uses relaxed thresholds: 80px displacement (vs 150px) for 3+ pointers, 3500ms duration.
+   - Untested on-device.
+
+4. **Comprehensive gesture audit doc: `docs/design-gesture-audit.md`**
+   - Full event flow diagram, all failure modes documented with log evidence, priority-ordered fix list, recommended next steps.
+
+### Key findings
+
+- **Duration was the primary bezel failure** -- not coordinate misreporting or pre-scan conflicts. 13/14 swipes in session B had correct bezel coordinates but exceeded the 1200ms limit.
+- **OCR parallelization doesn't help perceptibly** -- page context SDK calls are already fast (~sub-second total). The `recognizeElements` call (2s) dominates OCR time and can't be parallelized.
+- **SDK native bridge likely serializes calls** -- `Promise.all` sends calls simultaneously from JS, but the AIDL service may process them sequentially. Parallel batching reduces JS-side overhead but may not reduce wall-clock bridge time.
+- **Pre-scan on DOWN creates bridge congestion during failed multi-touch** -- 6 DOWNs in 7 seconds = ~18 wasted bridge calls. The bezel recovery code mitigates this by cancelling the standard gesture on PTR_DOWN.
+- **Touch panel caps at 3 simultaneous pointers** -- `maxPointers >= 3` is effectively `== 3` on Supernote hardware.
+- **Phantom multi-touch (B-012) occurs without device sleep** -- PTR_DOWN at identical coords to initial DOWN, then instant PTR_UP. Not just a wake-from-sleep issue.
+
+### What needs testing
+
+- Bezel swipe with 2500ms threshold -- should catch most natural 3-finger swipes
+- Bezel late recovery -- does it fire correctly when coordinates are misreported?
+- TaskAdd convert-to-text via toolbar capture (not QuickAdd) -- the insertTextLink pattern
+- Temp link cleanup without reloadFile -- does the deleted link disappear when plugin closes?
+
+### Next session
+
+- Test all uncommitted changes on-device
+- Commit once verified
+- If bezel swipe works reliably, consider the pre-scan skip for lower page region (reduces bridge waste further)
+- B-004 remaining: Today/Upcoming tab filtering
+- Update tracker: T-004 status, any new bezel bug entries
+
+### Builds
+
+- `build/outputs/SuperTask.snplg` -- session 28 build (T-004 optimizations + bezel fixes, uncommitted)
 
 ## Session 27 -- Bezel swipe config (F-014), SDK optimization, project filter (B-004)
 

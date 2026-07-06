@@ -13,14 +13,15 @@
  *    - Bounding box of movement -> programmatic lassoElements -> QuickAdd
  *    - Minimum 50x50px bbox required to avoid tiny accidental selections
  *
- * 3. BEZEL SWIPE (multi-finger swipe from bottom edge):
- *    - 2+ fingers swipe up from the bottom 1% of the canvas (bezel-in)
- *    - Quick motion (< 600ms), upward displacement > 150px
- *    - Opens task home. No conflict with other gestures (distinct origin zone).
+ * 3. THREE-FINGER DOUBLE TAP:
+ *    - 3+ fingers tap anywhere on the canvas, twice within 800ms
+ *    - Opens task home with the user's default tab
+ *    - No edge zone required (works anywhere, avoiding digitizer edge issues)
+ *    - More reliable than bezel swipe: no displacement/direction calculation
  *
  * Differentiator: movement that starts BEFORE 400ms = normal touch (neither).
  * Movement that starts AFTER 400ms hold = lasso-add. No movement = long press.
- * DOWN at bottom edge = bezel swipe candidate (separate tracking path).
+ * PTR_DOWN during standard gesture = multi-tap tracking (three-finger double tap).
  *
  * Events only fire when the plugin UI is dismissed (full-screen RN view
  * intercepts all touches). The listener stays active across UI open/close.
@@ -48,30 +49,22 @@ const MAX_DRIFT_PX = 20;      // Movement threshold to differentiate gestures
 const MIN_LASSO_SIZE = 50;    // Minimum bbox dimension to count as valid lasso
 const HIT_PADDING_PX = 30;    // Extra padding around link bounds for hit test
 
-// --- Bezel swipe config ---
-const BEZEL_EDGE_PCT = 0.01;     // Bottom 1% of canvas = bezel entry zone
-const BEZEL_SWIPE_MIN_PX = 150;  // Minimum upward displacement to count as swipe
-const BEZEL_SWIPE_MAX_MS = 1200; // Maximum duration (e-ink touch is slower than phone)
+// --- Three-finger double tap config ---
+const THREE_TAP_WINDOW_MS = 800; // Max time between first and second 3-finger tap
 
 // --- Module state ---
 let _sub = null;               // Motion listener subscription
 let _fingerDown = null;        // {x, y, time} of last finger DOWN
-let _enabled = true;           // Can be toggled off
-let _configOff = false;        // True when config is 'off' -- overrides _enabled
+let _configOff = false;        // True when user config is 'off'
 let _gestureMode = 'finger';   // 'finger' or 'pen-lasso' -- controls which quick-add gesture is active
 let _actionInProgress = false; // Re-entry guard for async handlers
 let _scanGeneration = 0;       // Increments on each DOWN; stale pre-scans bail out
 
-// --- Page size cache (for bezel edge detection) ---
-// Fetched lazily on first bezel-candidate DOWN. null = not yet fetched.
-// If fetch fails, bezel detection is disabled (fail closed, no hardcoded default).
-let _pageHeight = null;        // Canvas height in pixels (device-specific)
-let _pageSizeFetched = false;  // Whether we've attempted the fetch
-
-// --- Bezel swipe state ---
-// Completely separate tracking path from long-press/lasso.
-// Active when initial DOWN is in the bottom edge zone.
-let _bezelSwipe = null;        // {startY, startTime, maxPointers, lastY} or null
+// --- Three-finger double tap state ---
+// Separate tracking path from long-press/lasso.
+// Entered when PTR_DOWN (multi-touch) is detected during a standard gesture.
+let _multiTapTracking = null;  // {maxPointers} or null -- active multi-tap sequence
+let _threeFingerTap = null;    // {time} or null -- records first 3-finger tap, awaiting second
 
 /**
  * Initialize the gesture detector. Call once at plugin startup.
@@ -90,15 +83,12 @@ export function initGestureDetector() {
     applyGestureConfig(config.lassoGestureInput);
   }).catch(() => {});
 
-  // Pre-fetch page size for bezel edge detection
-  fetchPageHeight();
-
   let _eventCount = 0;
   _sub = PluginManager.registerMotionListener(1, {
     onMsg: (msg) => {
       _eventCount++;
 
-      if (!_enabled || _actionInProgress) return;
+      if (_configOff || _actionInProgress) return;
 
       // Only handle finger events (toolType 1)
       if (msg.toolType !== 1) {
@@ -140,17 +130,17 @@ export function initGestureDetector() {
 
       const baseAction = msg.action & 0xff;
 
-      // --- Bezel swipe path (completely separate from long-press/lasso) ---
-      if (_bezelSwipe) {
+      // --- Multi-tap tracking path (three-finger double tap) ---
+      if (_multiTapTracking) {
         if (baseAction === 5) {
-          // Additional finger -- expected for multi-finger bezel swipe
           const ptrIdx = (msg.action >> 8) & 0xff;
-          _bezelSwipe.maxPointers = Math.max(_bezelSwipe.maxPointers, ptrIdx + 1);
-          log('Gesture', `Bezel swipe: PTR_DOWN[${ptrIdx}], maxPointers=${_bezelSwipe.maxPointers}`);
-        } else if (baseAction === 2) {
-          _bezelSwipe.lastY = y;
+          _multiTapTracking.maxPointers = Math.max(_multiTapTracking.maxPointers, ptrIdx + 1);
+          log('Gesture', `Multi-tap: PTR_DOWN[${ptrIdx}], maxPointers=${_multiTapTracking.maxPointers}`);
+        } else if (baseAction === 2 || baseAction === 6) {
+          // MOVE or PTR_UP -- ignore (fingers drift on e-ink, individual lifts are normal)
         } else if (baseAction === 1 || baseAction === 3) {
-          onBezelSwipeEnd(y);
+          // UP or CANCEL -- all released, evaluate the tap
+          onMultiTapEnd();
         }
         return;
       }
@@ -163,10 +153,13 @@ export function initGestureDetector() {
       } else if (baseAction === 1) {
         onFingerUp(msg.x, msg.y);
       } else if (baseAction === 5) {
-        // Additional pointer DOWN (multi-touch) -- cancel single-finger gesture
+        // Additional pointer DOWN (multi-touch).
+        // Cancel standard gesture, enter multi-tap tracking for three-finger double tap.
+        const ptrIdx = (msg.action >> 8) & 0xff;
         if (_fingerDown) {
-          log('Gesture', 'Multi-touch detected (PTR_DOWN) -- cancelling single-finger gesture');
+          log('Gesture', `Multi-touch detected (PTR_DOWN[${ptrIdx}]) -- entering multi-tap tracking`);
           cancelGesture();
+          _multiTapTracking = {maxPointers: ptrIdx + 1};
         }
       } else if (baseAction === 3) {
         cancelGesture();
@@ -190,22 +183,6 @@ export function destroyGestureDetector() {
 }
 
 /**
- * Enable/disable gesture detection without removing the listener.
- */
-export function setGestureEnabled(enabled) {
-  // Config 'off' takes priority -- don't let App mount/unmount override it
-  if (_configOff) {
-    log('Gesture', `setGestureEnabled(${enabled}) ignored: config is off`);
-    return;
-  }
-  _enabled = enabled;
-  if (!enabled) cancelGesture();
-  // If re-enabled and page height not yet cached, try again
-  if (enabled && !_pageHeight) fetchPageHeight();
-  log('Gesture', `Enabled: ${enabled}`);
-}
-
-/**
  * Reload gesture config (call after settings change).
  */
 export function reloadGestureConfig() {
@@ -217,13 +194,11 @@ export function reloadGestureConfig() {
 function applyGestureConfig(input) {
   if (input === 'off') {
     _configOff = true;
-    _enabled = false;
     _gestureMode = 'finger';
     cancelGesture();
     log('Gesture', 'Config: gestures OFF');
   } else {
     _configOff = false;
-    _enabled = true;
     _gestureMode = input === 'pen-lasso' ? 'pen-lasso' : 'finger';
     log('Gesture', `Config: gestures ON, mode=${_gestureMode}`);
   }
@@ -253,18 +228,6 @@ function onFingerDown(x, y) {
   const MIXED_COOLDOWN_MS = 500;
   if (Date.now() - _mixedCancelTime < MIXED_COOLDOWN_MS) {
     log('Gesture', `DOWN suppressed: within ${MIXED_COOLDOWN_MS}ms of mixed-input cancel`);
-    return;
-  }
-
-  // --- Bezel swipe detection: DOWN at bottom edge enters separate path ---
-  if (_pageHeight && y > _pageHeight * (1 - BEZEL_EDGE_PCT)) {
-    _bezelSwipe = {
-      startY: y,
-      startTime: Date.now(),
-      maxPointers: 1,
-      lastY: y,
-    };
-    log('Gesture', `BEZEL DOWN at (${Math.round(x)},${Math.round(y)}) pageHeight=${_pageHeight} -- tracking swipe`);
     return;
   }
 
@@ -404,113 +367,50 @@ function resetState() {
 function cancelGesture() {
   resetState();
   _linkScanPromise = null;
-  _bezelSwipe = null;
+  _multiTapTracking = null;
+  // Note: _threeFingerTap is NOT cleared here -- it must persist across
+  // gesture cycles so the second tap of a double-tap can be detected.
 }
 
-// --- Page size fetch (for bezel edge threshold) ---
+// --- Three-finger double tap detection ---
 
-async function fetchPageHeight() {
-  log('Gesture', `fetchPageHeight called (fetched=${_pageSizeFetched}, current=${_pageHeight})`);
-  if (_pageSizeFetched && _pageHeight) return;
-  _pageSizeFetched = true;
+function onMultiTapEnd() {
+  if (!_multiTapTracking) return;
 
-  try {
-    const fpResult = await PluginCommAPI.getCurrentFilePath();
-    const filePath = fpResult?.result || '';
-    if (!filePath) {
-      log('Gesture', 'fetchPageHeight: no active note, will retry later');
-      _pageSizeFetched = false;
-      return;
-    }
+  const {maxPointers} = _multiTapTracking;
+  _multiTapTracking = null;
 
-    const pnResult = await PluginCommAPI.getCurrentPageNum();
-    const pageNum = pnResult?.result ?? 0;
-
-    log('Gesture', `fetchPageHeight: calling getPageSize(${filePath}, ${pageNum})`);
-    const sizeResult = await PluginFileAPI.getPageSize(filePath, pageNum);
-    log('Gesture', `fetchPageHeight: raw result=${JSON.stringify(sizeResult)}`);
-
-    if (sizeResult?.result?.height) {
-      _pageHeight = sizeResult.result.height;
-    } else if (sizeResult?.height) {
-      _pageHeight = sizeResult.height;
-    }
-
-    if (_pageHeight) {
-      log('Gesture', `Page height cached: ${_pageHeight}px`);
+  if (maxPointers >= 3) {
+    if (_threeFingerTap && (Date.now() - _threeFingerTap.time <= THREE_TAP_WINDOW_MS)) {
+      // Second 3-finger tap within window -- double tap!
+      log('Gesture', `THREE-FINGER DOUBLE TAP DETECTED (${Date.now() - _threeFingerTap.time}ms between taps)`);
+      _threeFingerTap = null;
+      handleThreeFingerDoubleTap();
     } else {
-      log('Gesture', `fetchPageHeight: could not extract height`);
-      _pageSizeFetched = false;
+      // First 3-finger tap (or previous expired) -- record and wait
+      _threeFingerTap = {time: Date.now()};
+      log('Gesture', `Three-finger tap (first) -- waiting for second within ${THREE_TAP_WINDOW_MS}ms`);
     }
-  } catch (e) {
-    log('Gesture', `fetchPageHeight failed: ${e.message}`);
-    _pageSizeFetched = false;
+  } else {
+    log('Gesture', `Multi-tap ended with ${maxPointers} pointers, ignoring`);
   }
 }
 
-// --- Bezel swipe detection ---
-
-function onBezelSwipeEnd(y) {
-  if (!_bezelSwipe) return;
-
-  const {startY, startTime, maxPointers, lastY} = _bezelSwipe;
-  const duration = Date.now() - startTime;
-  const displacement = startY - y; // positive = upward
-  _bezelSwipe = null;
-
-  log('Gesture', `BEZEL UP: pointers=${maxPointers} displacement=${Math.round(displacement)}px duration=${duration}ms`);
-
-  if (maxPointers < 2) {
-    log('Gesture', 'Bezel swipe: single finger, ignoring');
-    return;
-  }
-
-  if (duration > BEZEL_SWIPE_MAX_MS) {
-    log('Gesture', 'Bezel swipe: too slow, ignoring');
-    return;
-  }
-
-  if (displacement < BEZEL_SWIPE_MIN_PX) {
-    log('Gesture', 'Bezel swipe: not enough upward travel, ignoring');
-    return;
-  }
-
-  log('Gesture', `BEZEL SWIPE DETECTED: ${maxPointers} fingers, ${Math.round(displacement)}px up in ${duration}ms`);
-  handleBezelSwipe();
-}
-
-async function handleBezelSwipe() {
+async function handleThreeFingerDoubleTap() {
   if (_actionInProgress) {
-    log('Gesture', 'handleBezelSwipe: skipped, action already in progress');
+    log('Gesture', 'handleThreeFingerDoubleTap: skipped, action already in progress');
     return;
   }
   _actionInProgress = true;
 
   try {
     const config = await loadConfig();
-    const target = config.bezelSwipeTarget || 'default';
-    log('Gesture', `Bezel config: target=${target} projectId=${config.bezelSwipeProjectId || 'null'} projectName=${config.bezelSwipeProjectName || 'null'}`);
-
-    if (target === 'project' && config.bezelSwipeProjectId) {
-      log('Gesture', `Bezel swipe -> project: ${config.bezelSwipeProjectName || config.bezelSwipeProjectId}`);
-      global.__superTaskDeepLink = {
-        action: 'view-project',
-        projectId: config.bezelSwipeProjectId,
-        projectName: config.bezelSwipeProjectName || 'Project',
-      };
-    } else {
-      // Tab targets: 'default' uses the user's defaultTab setting, others are explicit
-      // If target is 'project' but no projectId configured, fall back to default tab
-      const focusTab = (target === 'default' || target === 'project')
-        ? (config.defaultTab || 'today')
-        : target;
-      log('Gesture', `Bezel swipe -> tab: ${focusTab}`);
-      global.__superTaskDeepLink = {action: 'this-page', focusTab};
-    }
-
+    const focusTab = config.defaultTab || 'today';
+    log('Gesture', `Three-finger double tap -> tab: ${focusTab}`);
+    global.__superTaskDeepLink = {action: 'this-page', focusTab};
     openPluginView();
   } catch (e) {
-    log('Gesture', `handleBezelSwipe error: ${e.message}`);
+    log('Gesture', `handleThreeFingerDoubleTap error: ${e.message}`);
   } finally {
     _actionInProgress = false;
   }
@@ -539,21 +439,6 @@ async function preScanLinks(x, y, generation) {
 
     log('Gesture', `Pre-scan: page ${pageNum} of ${filePath} at (${Math.round(x)},${Math.round(y)})`);
 
-    // Opportunistic page height cache: if fetchPageHeight failed at init,
-    // piggyback on the pre-scan context (which we know works)
-    if (!_pageHeight) {
-      try {
-        const sizeResult = await PluginFileAPI.getPageSize(filePath, pageNum);
-        if (sizeResult?.result?.height) _pageHeight = sizeResult.result.height;
-        else if (sizeResult?.height) _pageHeight = sizeResult.height;
-        if (_pageHeight) log('Gesture', `Page height cached (via pre-scan): ${_pageHeight}px`);
-      } catch (e) {
-        log('Gesture', `Pre-scan pageHeight fallback failed: ${e.message}`);
-      }
-    }
-
-    if (generation !== _scanGeneration) return null; // stale after page size fetch
-
     const elemResult = await PluginFileAPI.getElements(pageNum, filePath);
 
     if (generation !== _scanGeneration) {
@@ -563,7 +448,9 @@ async function preScanLinks(x, y, generation) {
     }
 
     if (!elemResult?.success || !elemResult.result) {
-      log('Gesture', `Pre-scan: getElements failed`);
+      const errCode = elemResult?.error?.code ?? elemResult?.error ?? 'unknown';
+      const errMsg = elemResult?.error?.message ?? '';
+      log('Gesture', `Pre-scan: getElements failed (code=${errCode}${errMsg ? ' msg=' + errMsg : ''} page=${pageNum} success=${elemResult?.success} resultType=${typeof elemResult?.result})`);
       return null;
     }
 
@@ -761,8 +648,7 @@ async function openPluginView() {
     }
     // If App isn't mounted yet, getInitialScreen() reads the global on mount.
 
-    setGestureEnabled(false);
-    log('Gesture', 'Gestures OFF (opening plugin view)');
+    cancelGesture(); // Clear any in-progress gesture state before showing the view
     const result = await PluginManager.showPluginView();
     log('Gesture', `showPluginView result: ${result}`);
   } catch (e) {

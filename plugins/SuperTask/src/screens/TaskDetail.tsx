@@ -14,7 +14,7 @@ import {
 import {PluginCommAPI, PluginManager} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
-import {createTempLink} from '../utils/tempLinkNav';
+import {openNote} from '../utils/noteOpener';
 import {setConfigLoader, updateTask, completeTask, deleteTask} from '../api/todoist';
 import {log, logError} from '../utils/debug';
 import PriorityPicker from '../components/PriorityPicker';
@@ -75,34 +75,26 @@ export default function TaskDetail({nav, task, projects}: Props) {
       const currentPath = fp?.result || '';
       const currentFile = currentPath.split('/').pop() || '';
 
-      if (currentFile === noteContext.noteFile) {
-        // Same note -- close plugin, user is already there
-        setViewNoteStatus(`Go to page ${noteContext.pageNum}`);
-        log('TaskDetail', `Same note, closing plugin. Page ${noteContext.pageNum}`);
-        setTimeout(() => closePlugin(), 800);
-        return;
-      }
-
-      // Different note -- create temp link, close plugin so user can tap it
-      log('TaskDetail', `Different note. Current: ${currentFile}, Target: ${noteContext.noteFile}`);
-
       // Use full path if available, otherwise guess same directory (legacy tasks)
       const targetPath = noteContext.notePath
-        || currentPath.substring(0, currentPath.lastIndexOf('/') + 1) + noteContext.noteFile;
+        || (currentFile === noteContext.noteFile
+          ? currentPath
+          : currentPath.substring(0, currentPath.lastIndexOf('/') + 1) + noteContext.noteFile);
 
-      setViewNoteStatus('Creating navigation link...');
+      setViewNoteStatus('Opening note...');
 
-      const result = await createTempLink(targetPath, noteContext.pageNum, task?.content);
+      // Page is stored 0-based in noteContext, intent expects 1-based
+      const intentPage = (noteContext.pageNum || 0) + 1;
+      log('TaskDetail', `${currentFile === noteContext.noteFile ? 'Same' : 'Different'} note. Opening ${targetPath} p.${intentPage}`);
+      const result = await openNote(targetPath, intentPage);
 
       if (!result.success) {
-        log('TaskDetail', `createTempLink failed: ${result.error}`);
+        log('TaskDetail', `openNote failed: ${result.error}`);
         setViewNoteStatus(`Error: ${result.error}`);
         return;
       }
 
-      setViewNoteStatus('Tap the link on the page to navigate');
-      log('TaskDetail', 'Temp link created, closing plugin');
-      setTimeout(() => closePlugin(), 1200);
+      log('TaskDetail', `Navigated to ${targetPath} p.${intentPage}`);
     } catch (e: any) {
       logError('TaskDetail', e);
       setViewNoteStatus(`Error: ${e.message}`);
