@@ -16,6 +16,7 @@ import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {openNote} from '../utils/noteOpener';
 import {setConfigLoader, updateTask, completeTask, deleteTask} from '../api/todoist';
+import {invalidateCache} from '../cache/taskCache';
 import {log, logError} from '../utils/debug';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
@@ -163,6 +164,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
     setStatus('Completing...');
     try {
       await completeTask(task.id);
+      invalidateCache();
       log('TaskDetail', `Completed task ${task.id}`);
       setStatus('Done!');
       setTimeout(() => nav.pop(), 500);
@@ -184,6 +186,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
     setStatus('Deleting...');
     try {
       await deleteTask(task.id);
+      invalidateCache();
       log('TaskDetail', `Deleted task ${task.id}`);
       setStatus('Deleted');
       setTimeout(() => nav.pop(), 500);

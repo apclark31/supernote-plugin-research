@@ -15,6 +15,7 @@ import {PluginManager, PluginNoteAPI, PluginCommAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask} from '../api/todoist';
+import {invalidateCache} from '../cache/taskCache';
 import {log, logError} from '../utils/debug';
 import {addTask as registryAddTask} from '../utils/taskRegistry';
 import PriorityPicker from '../components/PriorityPicker';
@@ -107,6 +108,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         dueString: dueString.trim() || undefined,
       });
       log('TaskAdd', `Created task: ${content.trim()} id=${task?.id} postCreateAction=${postCreateAction}`);
+      invalidateCache();
       setCreatedTask(task);
 
       // Auto-mark: dashed border with task ID encoded in link destPath.

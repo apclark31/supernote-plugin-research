@@ -30,6 +30,7 @@
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {log} from './debug';
 import {loadConfig} from './config';
+import {fetchTaskData} from '../cache/taskCache';
 
 // --- Action / tool decoding (matches Diagnostics format) ---
 const ACTION_NAMES = {0: 'DOWN', 1: 'UP', 2: 'MOVE', 3: 'CANCEL', 5: 'PTR_DOWN', 6: 'PTR_UP'};
@@ -407,6 +408,8 @@ async function handleThreeFingerDoubleTap() {
     const config = await loadConfig();
     const focusTab = config.defaultTab || 'today';
     log('Gesture', `Three-finger double tap -> tab: ${focusTab}`);
+    // Prefetch task data while React mounts (fire-and-forget)
+    fetchTaskData().catch(() => {});
     global.__superTaskDeepLink = {action: 'this-page', focusTab};
     openPluginView();
   } catch (e) {

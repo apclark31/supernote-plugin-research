@@ -19,6 +19,7 @@ import {PluginManager, PluginCommAPI, PluginNoteAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask, getProjects} from '../api/todoist';
+import {invalidateCache} from '../cache/taskCache';
 import {log, logError} from '../utils/debug';
 import {recognizeLassoElements} from '../utils/ocr';
 import {addTask as registryAddTask} from '../utils/taskRegistry';
@@ -209,6 +210,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         priority,
       });
       log('QuickAdd', `Created task id=${task?.id}`);
+      invalidateCache();
       createdTaskRef.current = task;
 
       // Write to local task registry

@@ -16,7 +16,8 @@ import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {getTasksForPage, getAllTasks as getAllRegistryTasks, removeTask} from '../utils/taskRegistry';
 import {loadConfig} from '../utils/config';
-import {setConfigLoader, getTasks, getProjects, completeTask} from '../api/todoist';
+import {completeTask} from '../api/todoist';
+import {getCache, fetchTaskData, invalidateCache} from '../cache/taskCache';
 import {log, logError} from '../utils/debug';
 import TabBar from '../components/TabBar';
 import TaskRow from '../components/TaskRow';
@@ -128,51 +129,49 @@ export default function TaskHome({nav}: Props) {
     })();
   }, []);
 
+  // Apply fetched data to component state
+  const applyData = useCallback((fetchedTasks: any[], fetchedProjects: any[]) => {
+    const pMap: ProjectMap = {};
+    (fetchedProjects || []).forEach((p: any) => { pMap[p.id] = p.name; });
+    setProjectMap(pMap);
+    setProjectList(fetchedProjects || []);
+    setTasks(fetchedTasks || []);
+  }, []);
+
+  // Reconcile registry: remove entries for tasks no longer in Todoist
+  const reconcileRegistry = useCallback(async (fetchedTasks: any[]) => {
+    try {
+      const allReg = await getAllRegistryTasks();
+      if (allReg.length > 0 && fetchedTasks && fetchedTasks.length > 0) {
+        const apiIds = new Set(fetchedTasks.map((t: any) => t.id));
+        const stale = allReg.filter((rt: any) => !apiIds.has(rt.id));
+        if (stale.length > 0) {
+          log('TaskHome', `Registry sync: removing ${stale.length} stale tasks (deleted/completed in Todoist)`);
+          for (const s of stale) {
+            await removeTask(s.id);
+          }
+          const refreshed = await getAllRegistryTasks();
+          setDeviceTasks(refreshed);
+          log('TaskHome', `Registry sync: ${refreshed.length} tasks remain`);
+        }
+      }
+    } catch (syncErr: any) {
+      log('TaskHome', `Registry sync failed (non-fatal): ${syncErr.message}`);
+    }
+  }, []);
+
+  // Fetch via cache layer (used by Refresh button)
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     setError('');
-    setConfigLoader(loadConfig);
-
     try {
-      const config = await loadConfig();
-      if (!config.apiToken) {
+      const data = await fetchTaskData();
+      if (data) {
+        applyData(data.tasks, data.projects);
+        await reconcileRegistry(data.tasks);
+        log('TaskHome', `Loaded ${data.tasks.length} tasks, ${data.projects.length} projects${silent ? ' (silent)' : ''}`);
+      } else {
         setError('No API token. Use the config button to set it up.');
-        if (!silent) setLoading(false);
-        return;
-      }
-
-      log('TaskHome', `Fetching tasks and projects...${silent ? ' (silent refresh)' : ''}`);
-      const [fetchedTasks, fetchedProjects] = await Promise.all([
-        getTasks(),
-        getProjects(),
-      ]);
-
-      const pMap: ProjectMap = {};
-      (fetchedProjects || []).forEach((p: any) => { pMap[p.id] = p.name; });
-      setProjectMap(pMap);
-      setProjectList(fetchedProjects || []);
-      setTasks(fetchedTasks || []);
-      log('TaskHome', `Loaded ${fetchedTasks?.length ?? 0} tasks, ${fetchedProjects?.length ?? 0} projects`);
-
-      // Reconcile registry: remove entries for tasks no longer in Todoist
-      try {
-        const allReg = await getAllRegistryTasks();
-        if (allReg.length > 0 && fetchedTasks && fetchedTasks.length > 0) {
-          const apiIds = new Set(fetchedTasks.map((t: any) => t.id));
-          const stale = allReg.filter((rt: any) => !apiIds.has(rt.id));
-          if (stale.length > 0) {
-            log('TaskHome', `Registry sync: removing ${stale.length} stale tasks (deleted/completed in Todoist)`);
-            for (const s of stale) {
-              await removeTask(s.id);
-            }
-            // Refresh device tasks after cleanup
-            const refreshed = await getAllRegistryTasks();
-            setDeviceTasks(refreshed);
-            log('TaskHome', `Registry sync: ${refreshed.length} tasks remain`);
-          }
-        }
-      } catch (syncErr: any) {
-        log('TaskHome', `Registry sync failed (non-fatal): ${syncErr.message}`);
       }
     } catch (err: any) {
       logError('TaskHome', err);
@@ -180,12 +179,38 @@ export default function TaskHome({nav}: Props) {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [applyData, reconcileRegistry]);
 
+  // Mount: serve cached data immediately, then refresh in background
   useEffect(() => {
     log('TaskHome', 'MOUNT');
-    fetchData();
-  }, [fetchData]);
+
+    // Stale-while-revalidate: render from cache if available
+    const cached = getCache();
+    if (cached) {
+      log('TaskHome', `Cache hit: ${cached.tasks.length} tasks (age: ${Date.now() - cached.timestamp}ms)`);
+      applyData(cached.tasks, cached.projects);
+      setLoading(false);
+    }
+
+    // Always fetch fresh data (deduplicates with any in-flight prefetch)
+    fetchTaskData()
+      .then(data => {
+        if (data) {
+          applyData(data.tasks, data.projects);
+          reconcileRegistry(data.tasks);
+          log('TaskHome', `Fresh data: ${data.tasks.length} tasks, ${data.projects.length} projects`);
+        } else if (!cached) {
+          setError('No API token. Use the config button to set it up.');
+        }
+        setLoading(false);
+      })
+      .catch(err => {
+        logError('TaskHome', err);
+        if (!cached) setError(err.message);
+        setLoading(false);
+      });
+  }, [applyData, reconcileRegistry]);
 
   const handleComplete = async (taskId: string) => {
     log('TaskHome', `COMPLETE pressed taskId=${taskId}`);
@@ -193,6 +218,7 @@ export default function TaskHome({nav}: Props) {
       await completeTask(taskId);
       log('TaskHome', `COMPLETE success taskId=${taskId}`);
       setTasks(prev => prev.filter(t => t.id !== taskId));
+      invalidateCache();
     } catch (err: any) {
       logError('TaskHome', err);
       setError(`Complete failed: ${err.message}`);
