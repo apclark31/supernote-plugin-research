@@ -1,4 +1,4 @@
-import {AppRegistry, Image} from 'react-native';
+import {AppRegistry, Image, DeviceEventEmitter} from 'react-native';
 import App from './App';
 import {name as appName} from './app.json';
 import {PluginManager} from 'sn-plugin-lib';
@@ -24,6 +24,7 @@ global.__superHubButtonId = null;
 PluginManager.registerButtonListener({
   onButtonPress: (msg) => {
     global.__superHubButtonId = msg.id;
+    DeviceEventEmitter.emit('superHubButton', {id: msg.id});
   },
 });
 
@@ -32,8 +33,10 @@ PluginManager.registerConfigButton();
 PluginManager.registerConfigButtonListener({
   onClick: () => {
     global.__superHubButtonId = 'config';
+    DeviceEventEmitter.emit('superHubButton', {id: 'config'});
   },
   onConfigButtonPress: () => {
     global.__superHubButtonId = 'config';
+    DeviceEventEmitter.emit('superHubButton', {id: 'config'});
   },
 });

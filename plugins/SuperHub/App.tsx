@@ -7,6 +7,7 @@ import {
   ScrollView,
   NativeModules,
   ActivityIndicator,
+  DeviceEventEmitter,
 } from 'react-native';
 import {PluginManager, PluginCommAPI, PluginFileAPI, FileUtils} from 'sn-plugin-lib';
 
@@ -104,13 +105,21 @@ function getInitialScreen(): Screen {
 }
 
 function App(): React.JSX.Element {
-  const [screen] = useState<Screen>(getInitialScreen);
+  const [screen, setScreen] = useState<Screen>(getInitialScreen);
   const [currentPath, setCurrentPath] = useState(NOTE_HOME);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortMode, setSortMode] = useState<SortMode>('modified');
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('superHubButton', ({id}) => {
+      global.__superHubButtonId = null;
+      setScreen(id === 'config' ? 'config' : 'browser');
+    });
+    return () => sub.remove();
+  }, []);
 
   const loadDirectory = useCallback(async (dirPath: string) => {
     setLoading(true);
