@@ -97,22 +97,20 @@ function ConfigScreen({onClose}: {onClose: () => void}): React.JSX.Element {
   );
 }
 
+function getInitialScreen(): Screen {
+  const pending = global.__superHubButtonId;
+  global.__superHubButtonId = null;
+  return pending === 'config' ? 'config' : 'browser';
+}
+
 function App(): React.JSX.Element {
-  const [screen, setScreen] = useState<Screen>('browser');
+  const [screen] = useState<Screen>(getInitialScreen);
   const [currentPath, setCurrentPath] = useState(NOTE_HOME);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortMode, setSortMode] = useState<SortMode>('modified');
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-
-  useEffect(() => {
-    const pending = global.__superHubButtonId;
-    global.__superHubButtonId = null;
-    if (pending === 'config') {
-      setScreen('config');
-    }
-  }, []);
 
   const loadDirectory = useCallback(async (dirPath: string) => {
     setLoading(true);
@@ -159,8 +157,10 @@ function App(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    loadDirectory(currentPath);
-  }, [currentPath, loadDirectory]);
+    if (screen === 'browser') {
+      loadDirectory(currentPath);
+    }
+  }, [currentPath, loadDirectory, screen]);
 
   const sortedEntries = React.useMemo(() => {
     const folders = entries.filter(e => e.isDirectory);
