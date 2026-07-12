@@ -14,6 +14,8 @@ const debug = require('./src/utils/debug');
 
 const {NoteOpener} = NativeModules;
 
+type Screen = 'browser' | 'config';
+
 const ROOT_PATH = '/storage/emulated/0';
 const NOTE_HOME = `${ROOT_PATH}/Note`;
 
@@ -55,13 +57,62 @@ function getFileType(name: string): string {
   return '';
 }
 
+function ConfigScreen({onClose}: {onClose: () => void}): React.JSX.Element {
+  const [logs, setLogs] = useState<string[]>(debug.getLogs());
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    debug.setListener((updated: string[]) => setLogs([...updated]));
+    return () => debug.setListener(null);
+  }, []);
+
+  const handleUpload = async () => {
+    setUploading(true);
+    await debug.uploadLogs();
+    setUploading(false);
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.configTitle}>SuperHub Debug</Text>
+        <View style={styles.headerRight}>
+          <Pressable style={styles.newNoteButton} onPress={handleUpload} disabled={uploading}>
+            <Text style={styles.newNoteText}>{uploading ? '...' : 'Upload'}</Text>
+          </Pressable>
+          <Pressable style={styles.closeButton} onPress={onClose}>
+            <Text style={styles.closeText}>X</Text>
+          </Pressable>
+        </View>
+      </View>
+      <ScrollView style={styles.list}>
+        {logs.map((line, i) => (
+          <Text key={i} style={styles.logLine}>{line}</Text>
+        ))}
+        {logs.length === 0 && (
+          <Text style={styles.emptyText}>No logs yet</Text>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
 function App(): React.JSX.Element {
+  const [screen, setScreen] = useState<Screen>('browser');
   const [currentPath, setCurrentPath] = useState(NOTE_HOME);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortMode, setSortMode] = useState<SortMode>('modified');
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    const pending = global.__superHubButtonId;
+    global.__superHubButtonId = null;
+    if (pending === 'config') {
+      setScreen('config');
+    }
+  }, []);
 
   const loadDirectory = useCallback(async (dirPath: string) => {
     setLoading(true);
@@ -205,6 +256,10 @@ function App(): React.JSX.Element {
     PluginManager.closePluginView();
   };
 
+  if (screen === 'config') {
+    return <ConfigScreen onClose={handleClose} />;
+  }
+
   const pathSegments = React.useMemo(() => {
     const relative = currentPath.replace(ROOT_PATH, '');
     if (!relative) return [{name: '/', path: ROOT_PATH}];
@@ -261,31 +316,24 @@ function App(): React.JSX.Element {
         </View>
       </View>
 
-      <View style={styles.sortBar}>
-        <Text style={styles.sortLabel}>Sort:</Text>
+      <View style={styles.columnHeader}>
         <Pressable
-          style={[styles.sortOption, sortMode === 'modified' && styles.sortActive]}
-          onPress={() => setSortMode('modified')}>
-          <Text
-            style={[
-              styles.sortText,
-              sortMode === 'modified' && styles.sortTextActive,
-            ]}>
-            Modified
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.sortOption, sortMode === 'name' && styles.sortActive]}
+          style={styles.colName}
           onPress={() => setSortMode('name')}>
-          <Text
-            style={[
-              styles.sortText,
-              sortMode === 'name' && styles.sortTextActive,
-            ]}>
-            Name
+          <Text style={styles.colHeaderText}>
+            Name{sortMode === 'name' ? ' ▼' : ''}
           </Text>
         </Pressable>
-        <Text style={styles.countText}>{entries.length} items</Text>
+        <Pressable
+          style={styles.colDate}
+          onPress={() => setSortMode('modified')}>
+          <Text style={[styles.colHeaderText, styles.colHeaderRight]}>
+            Modified{sortMode === 'modified' ? ' ▼' : ''}
+          </Text>
+        </Pressable>
+        <View style={styles.colSize}>
+          <Text style={[styles.colHeaderText, styles.colHeaderRight]}>Size</Text>
+        </View>
       </View>
 
       {loading ? (
@@ -301,36 +349,31 @@ function App(): React.JSX.Element {
           <Text style={styles.emptyText}>Empty folder</Text>
         </View>
       ) : (
-        <>
-          <View style={styles.columnHeader}>
-            <Text style={[styles.colHeaderText, styles.colName]}>Name</Text>
-            <Text style={[styles.colHeaderText, styles.colDate]}>Modified</Text>
-            <Text style={[styles.colHeaderText, styles.colSize]}>Size</Text>
-          </View>
-          <ScrollView style={styles.list}>
-            {sortedEntries.map(entry => (
-              <Pressable
-                key={entry.path}
-                style={styles.row}
-                onPress={() => handlePress(entry)}>
-                <View style={styles.colName}>
-                  <Text style={styles.iconInline}>
-                    {entry.isDirectory ? '[ ]' : getFileType(entry.name)}
-                  </Text>
-                  <Text style={styles.fileName} numberOfLines={1}>
-                    {entry.isDirectory ? entry.name : getDisplayName(entry.name)}
+        <ScrollView style={styles.list}>
+          {sortedEntries.map(entry => (
+            <Pressable
+              key={entry.path}
+              style={styles.row}
+              onPress={() => handlePress(entry)}>
+              <View style={styles.colName}>
+                <View style={styles.typeBadge}>
+                  <Text style={styles.typeBadgeText}>
+                    {entry.isDirectory ? 'DIR' : getFileType(entry.name)}
                   </Text>
                 </View>
-                <Text style={[styles.colText, styles.colDate]}>
-                  {formatDate(entry.lastModified)}
+                <Text style={styles.fileName} numberOfLines={1}>
+                  {entry.isDirectory ? entry.name : getDisplayName(entry.name)}
                 </Text>
-                <Text style={[styles.colText, styles.colSize]}>
-                  {entry.isDirectory ? '--' : formatSize(entry.size)}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </>
+              </View>
+              <Text style={[styles.colText, styles.colDate]}>
+                {formatDate(entry.lastModified)}
+              </Text>
+              <Text style={[styles.colText, styles.colSize]}>
+                {entry.isDirectory ? '--' : formatSize(entry.size)}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       )}
     </View>
   );
@@ -418,40 +461,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000000',
   },
-  sortBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#cccccc',
-    gap: 8,
-  },
-  sortLabel: {
-    fontSize: 14,
-    color: '#666666',
-  },
-  sortOption: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: '#cccccc',
-  },
-  sortActive: {
-    borderColor: '#000000',
-    backgroundColor: '#000000',
-  },
-  sortText: {
-    fontSize: 14,
+  configTitle: {
+    fontSize: 18,
+    fontWeight: '700',
     color: '#000000',
   },
-  sortTextActive: {
-    color: '#ffffff',
-  },
-  countText: {
-    fontSize: 14,
-    color: '#666666',
-    marginLeft: 'auto',
+  logLine: {
+    fontSize: 12,
+    fontFamily: 'monospace',
+    color: '#000000',
+    paddingHorizontal: 16,
+    paddingVertical: 2,
   },
   centered: {
     flex: 1,
@@ -470,15 +490,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderBottomWidth: 2,
     borderBottomColor: '#000000',
   },
   colHeaderText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#444444',
-    textTransform: 'uppercase',
+    color: '#000000',
+  },
+  colHeaderRight: {
+    textAlign: 'right',
   },
   list: {
     flex: 1,
@@ -505,12 +527,19 @@ const styles = StyleSheet.create({
     width: 70,
     textAlign: 'right',
   },
-  iconInline: {
-    fontSize: 12,
+  typeBadge: {
+    width: 44,
+    height: 24,
+    borderWidth: 1,
+    borderColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  typeBadgeText: {
+    fontSize: 11,
     fontWeight: '700',
     color: '#000000',
-    width: 40,
-    textAlign: 'center',
   },
   fileName: {
     fontSize: 16,

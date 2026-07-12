@@ -26,3 +26,14 @@ PluginManager.registerButtonListener({
     global.__superHubButtonId = msg.id;
   },
 });
+
+PluginManager.registerConfigButton();
+
+PluginManager.registerConfigButtonListener({
+  onClick: () => {
+    global.__superHubButtonId = 'config';
+  },
+  onConfigButtonPress: () => {
+    global.__superHubButtonId = 'config';
+  },
+});
