@@ -3,7 +3,7 @@ const logs = [];
 let listener = null;
 
 try {
-  const config = require('../../../config.local');
+  const config = require('../../config.local');
   debugServerUrl = (config.default || config).debugServerUrl;
 } catch (e) {}
 
