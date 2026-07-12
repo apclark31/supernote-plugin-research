@@ -1,0 +1,10 @@
+{
+  "name": "SuperHub",
+  "desc": "Power-user file manager for Supernote",
+  "iconPath": "",
+  "versionName": "0.1.0",
+  "versionCode": "1",
+  "pluginID": "jwjvo7blzuuj2ngv",
+  "pluginKey": "SuperHub",
+  "jsMainPath": "index"
+}
