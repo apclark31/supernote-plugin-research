@@ -29,6 +29,7 @@ type FileEntry = {
 };
 
 type SortMode = 'name' | 'modified';
+type SortDir = 'asc' | 'desc';
 
 function formatDate(timestamp: number): string {
   if (!timestamp) return '';
@@ -110,6 +111,7 @@ function App(): React.JSX.Element {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortMode, setSortMode] = useState<SortMode>('modified');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -171,21 +173,34 @@ function App(): React.JSX.Element {
     }
   }, [currentPath, loadDirectory, screen]);
 
+  const handleSort = useCallback((mode: SortMode) => {
+    if (mode === sortMode) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortMode(mode);
+      setSortDir(mode === 'modified' ? 'desc' : 'asc');
+    }
+  }, [sortMode]);
+
   const sortedEntries = React.useMemo(() => {
     const folders = entries.filter(e => e.isDirectory);
     const files = entries.filter(e => !e.isDirectory);
 
-    const sortFn =
+    const baseFn =
       sortMode === 'modified'
-        ? (a: FileEntry, b: FileEntry) => b.lastModified - a.lastModified
+        ? (a: FileEntry, b: FileEntry) => a.lastModified - b.lastModified
         : (a: FileEntry, b: FileEntry) =>
             a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+
+    const sortFn = sortDir === 'desc'
+      ? (a: FileEntry, b: FileEntry) => -baseFn(a, b)
+      : baseFn;
 
     folders.sort(sortFn);
     files.sort(sortFn);
 
     return [...folders, ...files];
-  }, [entries, sortMode]);
+  }, [entries, sortMode, sortDir]);
 
   const handlePress = useCallback(
     async (entry: FileEntry) => {
@@ -328,16 +343,16 @@ function App(): React.JSX.Element {
       <View style={styles.columnHeader}>
         <Pressable
           style={styles.colName}
-          onPress={() => setSortMode('name')}>
+          onPress={() => handleSort('name')}>
           <Text style={styles.colHeaderText}>
-            Name{sortMode === 'name' ? ' ▼' : ''}
+            Name{sortMode === 'name' ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
           </Text>
         </Pressable>
         <Pressable
           style={styles.colDate}
-          onPress={() => setSortMode('modified')}>
+          onPress={() => handleSort('modified')}>
           <Text style={[styles.colHeaderText, styles.colHeaderRight]}>
-            Modified{sortMode === 'modified' ? ' ▼' : ''}
+            Modified{sortMode === 'modified' ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
           </Text>
         </Pressable>
         <View style={styles.colSize}>
