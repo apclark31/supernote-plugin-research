@@ -15,6 +15,7 @@ import {
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask} from '../utils/taskRegistry';
+import {openNote} from '../utils/noteOpener';
 import {loadConfig} from '../utils/config';
 import {completeTask, reopenTask, getCompletedTasks} from '../api/todoist';
 import {getCache, fetchTaskData, invalidateCache} from '../cache/taskCache';
@@ -57,7 +58,7 @@ export default function TaskHome({nav, focusTab}: Props) {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [noteCtx, setNoteCtx] = useState<{fileName: string; pageNum: number} | null>(null);
+  const [noteCtx, setNoteCtx] = useState<{fileName: string; pageNum: number; filePath: string} | null>(null);
   const [pageTaskIds, setPageTaskIds] = useState<string[]>([]);
   const [registryNoteTasks, setRegistryNoteTasks] = useState<any[]>([]);
   const [deviceTasks, setDeviceTasks] = useState<any[]>([]);
@@ -92,7 +93,7 @@ export default function TaskHome({nav, focusTab}: Props) {
 
         const fileName = filePath.split('/').pop()?.replace('.note', '') || '';
         const noteFile = filePath.split('/').pop() || '';
-        setNoteCtx({fileName, pageNum});
+        setNoteCtx({fileName, pageNum, filePath});
         log('TaskHome', `Note context: ${fileName} p.${pageNum}`);
 
         // Scan page elements for supertask:// links
@@ -272,6 +273,16 @@ export default function TaskHome({nav, focusTab}: Props) {
     }
   };
 
+  // Jump straight into a note at a task's page. Registry pages are 0-based,
+  // the intent is 1-based; openNote() closes the plugin view itself.
+  const handleOpenNote = (path: string, pageNum0?: number) => {
+    const intentPage = (pageNum0 ?? -1) + 1; // unknown page -> 0 = last-used
+    log('TaskHome', `OPEN NOTE: ${path} p.${intentPage}`);
+    openNote(path, intentPage).then(result => {
+      if (!result.success) log('TaskHome', `openNote failed: ${result.error}`);
+    });
+  };
+
   const handleTaskPress = (task: any) => {
     log('TaskHome', `TASK pressed id=${task.id} content="${task.content?.slice(0, 30)}"`);
     nav.push('task-detail', {task, projects: projectList});
@@ -351,6 +362,13 @@ export default function TaskHome({nav, focusTab}: Props) {
               onPress={handleTaskPress}
               showProject={projectMap[task.project_id]}
               pageNum={pageNum}
+              // Jump button only for tasks on a DIFFERENT page -- you're
+              // already looking at the current one
+              onOpenNote={
+                noteCtx && pageNum !== undefined && pageNum !== noteCtx.pageNum
+                  ? () => handleOpenNote(noteCtx.filePath, pageNum)
+                  : undefined
+              }
             />
           </View>
         ))}
@@ -610,11 +628,18 @@ export default function TaskHome({nav, focusTab}: Props) {
       for (const dt of group.entries) {
         // Try to find the full Todoist task for richer display
         const fullTask = tasks.find(t => t.id === dt.id);
+        // Jump target: stored full path, or same-directory guess for legacy
+        // entries (mirrors TaskDetail's View Note fallback)
+        let openPath: string | undefined = dt.notePath;
+        if (!openPath && dt.noteFile && noteCtx?.filePath) {
+          openPath = noteCtx.filePath.substring(0, noteCtx.filePath.lastIndexOf('/') + 1) + dt.noteFile;
+        }
         items.push({
           type: 'task',
           key: dt.id,
           task: fullTask || {id: dt.id, content: dt.content, _registryOnly: true},
           pageNum: dt.pageNum,
+          openPath,
         });
       }
     }
@@ -636,6 +661,11 @@ export default function TaskHome({nav, focusTab}: Props) {
               onPress={handleTaskPress}
               showProject={projectMap[item.task.project_id]}
               pageNum={item.pageNum}
+              onOpenNote={
+                item.openPath
+                  ? () => handleOpenNote(item.openPath, item.pageNum)
+                  : undefined
+              }
             />
           );
         }}

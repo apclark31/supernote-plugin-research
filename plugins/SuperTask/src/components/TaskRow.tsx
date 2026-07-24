@@ -35,9 +35,10 @@ type Props = {
   pageNum?: number;
   checked?: boolean;      // Done-tab mode: box filled, tap = reopen
   completedAt?: string;   // ISO completion timestamp -> "Done Jul 24" chip
+  onOpenNote?: () => void; // renders a right-aligned "Note >" jump button
 };
 
-export default function TaskRow({task, onComplete, onPress, showProject, pageNum, checked, completedAt}: Props) {
+export default function TaskRow({task, onComplete, onPress, showProject, pageNum, checked, completedAt, onOpenNote}: Props) {
   const [armed, setArmed] = useState(false);
   const armTimer = useRef<any>(null);
   useEffect(() => () => { if (armTimer.current) clearTimeout(armTimer.current); }, []);
@@ -93,6 +94,14 @@ export default function TaskRow({task, onComplete, onPress, showProject, pageNum
           </View>
         )}
       </View>
+      {onOpenNote ? (
+        <Pressable
+          style={styles.noteBtn}
+          onPress={() => { log('TaskRow', `OPEN NOTE pressed id=${task.id}`); onOpenNote(); }}
+          hitSlop={6}>
+          <Text style={styles.noteBtnText}>{'Note >'}</Text>
+        </Pressable>
+      ) : null}
     </Pressable>
   );
 }
@@ -131,5 +140,19 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
     marginTop: 6,
+  },
+  noteBtn: {
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginLeft: 8,
+    alignSelf: 'flex-start',
+  },
+  noteBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#000000',
   },
 });
