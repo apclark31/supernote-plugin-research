@@ -21,8 +21,10 @@ AppRegistry.registerComponent(appName, () => App);
 PluginManager.init();
 
 // Register motion listener at init so long-press gestures work
-// even before the plugin UI has ever been opened.
-// Config 'off' disables via reloadGestureConfig -- no restart needed.
+// even before the plugin UI has ever been opened. The onMsg callback is
+// SDK-free (pure JS tracking); SDK calls only run after a gesture is
+// classified on finger UP. Config 'off' disables the quick-add lasso
+// gesture only (long press + three-finger tap always on) -- no restart needed.
 initGestureDetector();
 
 const icon = Image.resolveAssetSource(require('./assets/icon.png')).uri;

@@ -51,7 +51,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [defaultScreen, setDefaultScreen] = useState('task-home');
   const [debugMode, setDebugMode] = useState(false);
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
-  const [lassoGestureInput, setLassoGestureInput] = useState('finger');
+  const [lassoGestureInput, setLassoGestureInput] = useState('off');
   const [showTokenInfo, setShowTokenInfo] = useState(false);
   const [showGestureInfo, setShowGestureInfo] = useState(false);
 

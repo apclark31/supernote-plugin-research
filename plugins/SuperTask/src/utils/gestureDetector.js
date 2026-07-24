@@ -3,25 +3,45 @@
  *
  * Three gesture types detected from a single motion listener:
  *
- * 1. LONG PRESS (static hold):
+ * 1. LONG PRESS (static hold) -- always active:
  *    - Finger down, hold >= 800ms, NO movement, finger up
  *    - Scans for supertask:// links at touch point -> opens task detail
  *
- * 2. LASSO-ADD (hold then drag):
+ * 2. LASSO-ADD (hold then drag) -- config 'finger' only:
  *    - Finger down, hold >= 400ms, THEN start moving (draw selection)
- *    - Blocked if pre-scan found a supertask link at touch point (already captured)
+ *    - Aborted if the DOWN point sits on an existing supertask link
  *    - Bounding box of movement -> programmatic lassoElements -> QuickAdd
  *    - Minimum 50x50px bbox required to avoid tiny accidental selections
  *
- * 3. THREE-FINGER DOUBLE TAP:
+ * 3. THREE-FINGER DOUBLE TAP -- always active:
  *    - 3+ fingers tap anywhere on the canvas, twice within 800ms
  *    - Opens task home with the user's default tab
- *    - No edge zone required (works anywhere, avoiding digitizer edge issues)
- *    - More reliable than bezel swipe: no displacement/direction calculation
  *
- * Differentiator: movement that starts BEFORE 400ms = normal touch (neither).
- * Movement that starts AFTER 400ms hold = lasso-add. No movement = long press.
- * PTR_DOWN during standard gesture = multi-tap tracking (three-finger double tap).
+ * Config (`lassoGestureInput`): 'off' | 'finger' | 'pen-lasso'. Controls ONLY
+ * the quick-add gesture (lasso-add / pen-lasso-assist). Long press and
+ * three-finger double tap are always active -- they have no false-positive
+ * overlap with normal note-taking. Default is 'off': hold-then-drag looks
+ * like a paused scroll, so it must be opted into.
+ *
+ * ARCHITECTURE: the onMsg callback is SDK-FREE. It only tracks coordinates,
+ * timestamps, and pointer counts -- pure JS, no bridge traffic. SDK calls
+ * (link scan, lassoElements) run only AFTER a gesture has been classified on
+ * finger UP. A normal tap, scroll, or pen stroke costs zero SDK calls.
+ * (Previously a 3-SDK-call pre-scan fired on every finger DOWN, spamming the
+ * AIDL bridge during normal writing -- suspected cause of device-level
+ * interference that got the plugin uninstalled.)
+ *
+ * GESTURE-DEATH PROTECTION (B-019): SDK calls can hang indefinitely. Two
+ * layers of defense keep `_actionInProgress` from locking up forever:
+ *   1. withTimeout() races each SDK call against a 5s timer. BUT JS timers
+ *      are suspended while the plugin view is closed (documented on-device
+ *      learning), so the timer may never fire exactly when gestures run.
+ *   2. Event-driven watchdog in onMsg: if _actionInProgress has been held
+ *      longer than WATCHDOG_MS, the next motion event force-clears it. The
+ *      motion event stream is the one thing guaranteed to keep flowing while
+ *      the view is closed. Worst case is one dropped gesture, never a dead
+ *      session. An action token (_actionId) makes the hung handler's
+ *      finally{} a no-op so it can't clobber a newer action's guard.
  *
  * Events only fire when the plugin UI is dismissed (full-screen RN view
  * intercepts all touches). The listener stays active across UI open/close.
@@ -52,20 +72,47 @@ const HIT_PADDING_PX = 30;    // Extra padding around link bounds for hit test
 
 // --- Three-finger double tap config ---
 const THREE_TAP_WINDOW_MS = 800; // Max time between first and second 3-finger tap
+const SDK_TIMEOUT_MS = 5000;     // Max wait for SDK calls (only works while JS timers run)
+const WATCHDOG_MS = 8000;        // Event-driven force-clear of a stuck _actionInProgress
+
+/** Race a promise against a timeout. Returns null if the timeout fires first.
+ * NOTE: JS timers are suspended while the plugin view is closed, so this is
+ * best-effort only -- the onMsg watchdog is the guaranteed recovery path. */
+function withTimeout(promise, ms = SDK_TIMEOUT_MS) {
+  return Promise.race([
+    promise,
+    new Promise(resolve => setTimeout(() => resolve(null), ms)),
+  ]);
+}
 
 // --- Module state ---
 let _sub = null;               // Motion listener subscription
 let _fingerDown = null;        // {x, y, time} of last finger DOWN
-let _configOff = false;        // True when user config is 'off'
-let _gestureMode = 'finger';   // 'finger' or 'pen-lasso' -- controls which quick-add gesture is active
+let _gestureMode = 'off';      // 'off', 'finger', or 'pen-lasso' -- quick-add gesture only
 let _actionInProgress = false; // Re-entry guard for async handlers
-let _scanGeneration = 0;       // Increments on each DOWN; stale pre-scans bail out
+let _actionStartTime = 0;      // When _actionInProgress was set (watchdog deadline)
+let _actionId = 0;             // Token: stale handlers' finally{} must not clear a newer action
 
 // --- Three-finger double tap state ---
 // Separate tracking path from long-press/lasso.
 // Entered when PTR_DOWN (multi-touch) is detected during a standard gesture.
 let _multiTapTracking = null;  // {maxPointers} or null -- active multi-tap sequence
 let _threeFingerTap = null;    // {time} or null -- records first 3-finger tap, awaiting second
+
+/** Mark an async action as started. Returns a token for endAction(). */
+function beginAction() {
+  _actionId++;
+  _actionInProgress = true;
+  _actionStartTime = Date.now();
+  return _actionId;
+}
+
+/** Clear the action guard -- but only if this handler still owns it. */
+function endAction(id) {
+  if (id === _actionId) {
+    _actionInProgress = false;
+  }
+}
 
 /**
  * Initialize the gesture detector. Call once at plugin startup.
@@ -79,7 +126,7 @@ export function initGestureDetector() {
 
   log('Gesture', 'Initializing gesture detector');
 
-  // Load gesture config ('off' or 'on')
+  // Load quick-add gesture config ('off', 'finger', 'pen-lasso')
   loadConfig().then(config => {
     applyGestureConfig(config.lassoGestureInput);
   }).catch(() => {});
@@ -89,7 +136,18 @@ export function initGestureDetector() {
     onMsg: (msg) => {
       _eventCount++;
 
-      if (_configOff || _actionInProgress) return;
+      if (_actionInProgress) {
+        // Watchdog: if a handler has been "in progress" past the deadline,
+        // its SDK call hung (and withTimeout's timer may be suspended).
+        // Force-clear so gestures recover instead of dying for the session.
+        if (Date.now() - _actionStartTime > WATCHDOG_MS) {
+          log('Gesture', `WATCHDOG: _actionInProgress stuck ${Date.now() - _actionStartTime}ms -- force-clearing`);
+          _actionId++; // Invalidate the hung handler's endAction()
+          _actionInProgress = false;
+        } else {
+          return;
+        }
+      }
 
       // Only handle finger events (toolType 1)
       if (msg.toolType !== 1) {
@@ -107,7 +165,7 @@ export function initGestureDetector() {
               log('Gesture', `PEN UP #${_penAssistEvents} during finger hold (finger held ${Date.now() - _fingerDown.time}ms)`);
             }
           } else {
-            // Finger mode: pen during finger hold cancels the gesture
+            // Finger/off mode: pen during finger hold cancels the gesture
             if (!_mixedInput) {
               log('Gesture', `PEN during FINGER hold -- cancelling`);
               _mixedInput = true;
@@ -193,16 +251,11 @@ export function reloadGestureConfig() {
 }
 
 function applyGestureConfig(input) {
-  if (input === 'off') {
-    _configOff = true;
-    _gestureMode = 'finger';
+  _gestureMode = input === 'pen-lasso' ? 'pen-lasso' : input === 'finger' ? 'finger' : 'off';
+  if (_gestureMode === 'off') {
     cancelGesture();
-    log('Gesture', 'Config: gestures OFF');
-  } else {
-    _configOff = false;
-    _gestureMode = input === 'pen-lasso' ? 'pen-lasso' : 'finger';
-    log('Gesture', `Config: gestures ON, mode=${_gestureMode}`);
   }
+  log('Gesture', `Config: quick-add mode=${_gestureMode} (long press + three-finger tap always on)`);
 }
 
 // --- Internal handlers ---
@@ -212,8 +265,6 @@ function applyGestureConfig(input) {
 
 let _driftExceeded = false;  // Track if finger moved too much (before hold threshold)
 let _mixedInput = false;     // Track if pen occurred during hold
-let _linkScanPromise = null; // Async pre-scan started on finger DOWN
-let _preScanResult = null;   // Sync cache of resolved pre-scan (for fast-path gate)
 let _lassoMode = false;      // Whether we've entered lasso-drawing mode
 let _lassoBbox = null;       // {minX, minY, maxX, maxY} bounding box of movement
 let _mixedCancelTime = 0;    // Timestamp of last mixed-input cancellation
@@ -232,27 +283,23 @@ function onFingerDown(x, y) {
     return;
   }
 
+  // Pure JS -- no SDK calls here. Link scanning happens post-classification
+  // in handleLongPress/handleLassoAdd, so normal touches cost zero bridge calls.
   _fingerDown = {x, y, time: Date.now()};
   _driftExceeded = false;
   _mixedInput = false;
   _lassoMode = false;
   _lassoBbox = null;
-  _preScanResult = null;
-  // Start scanning for links immediately (overlaps with hold time)
-  const gen = ++_scanGeneration;
-  _linkScanPromise = preScanLinks(x, y, gen).then(r => {
-    if (gen === _scanGeneration) _preScanResult = r;
-    return r;
-  });
   log('Gesture', `DOWN at (${Math.round(x)},${Math.round(y)}) tool=FINGER`);
 }
 
 function onFingerMove(x, y) {
   if (!_fingerDown || _mixedInput) return;
 
-  // In pen-lasso mode, finger movement is irrelevant (pen does the lasso)
-  // but we still track drift to prevent false long-press detection
-  if (_gestureMode === 'pen-lasso') {
+  // Quick-add drag-lasso disabled ('off') or pen draws the lasso ('pen-lasso'):
+  // finger movement never enters lasso mode, but we still track drift so a
+  // moved finger doesn't count as a long press.
+  if (_gestureMode !== 'finger') {
     const dx = x - _fingerDown.x;
     const dy = y - _fingerDown.y;
     if (Math.sqrt(dx * dx + dy * dy) > MAX_DRIFT_PX) {
@@ -278,13 +325,8 @@ function onFingerMove(x, y) {
     const elapsed = Date.now() - _fingerDown.time;
 
     if (elapsed >= LASSO_HOLD_MS) {
-      // Fast-path gate: if pre-scan already resolved and found a link, block lasso mode
-      if (_preScanResult?.taskId) {
-        log('Gesture', `LASSO blocked: DOWN on existing task ${_preScanResult.taskId}`);
-        _driftExceeded = true; // Prevent further gesture processing
-        return;
-      }
-      // Held long enough before moving -- enter lasso-add mode
+      // Held long enough before moving -- enter lasso-add mode.
+      // (The existing-link gate runs in handleLassoAdd, post-classification.)
       _lassoMode = true;
       _lassoBbox = {
         minX: Math.min(_fingerDown.x, x),
@@ -305,6 +347,8 @@ function onFingerUp(x, y) {
   if (!_fingerDown) return;
 
   const held = Date.now() - _fingerDown.time;
+  const downX = _fingerDown.x;
+  const downY = _fingerDown.y;
 
   if (_lassoMode && _lassoBbox && !_mixedInput) {
     // Lasso-add gesture: compute final bbox
@@ -320,7 +364,7 @@ function onFingerUp(x, y) {
 
     if (w >= MIN_LASSO_SIZE && h >= MIN_LASSO_SIZE) {
       log('Gesture', `LASSO-ADD DETECTED: ${Math.round(w)}x${Math.round(h)}px`);
-      handleLassoAdd(_lassoBbox);
+      handleLassoAdd(_lassoBbox, downX, downY);
     } else {
       log('Gesture', `Lasso too small (${Math.round(w)}x${Math.round(h)}), ignoring`);
     }
@@ -347,8 +391,8 @@ function onFingerUp(x, y) {
 
   // Static long press: held >= threshold, no drift, no mixed input
   if (held >= LONG_PRESS_MS && !_driftExceeded && !_mixedInput) {
-    log('Gesture', `LONG PRESS DETECTED at (${Math.round(_fingerDown.x)},${Math.round(_fingerDown.y)}) held ${held}ms`);
-    handleLongPress();
+    log('Gesture', `LONG PRESS DETECTED at (${Math.round(downX)},${Math.round(downY)}) held ${held}ms`);
+    handleLongPress(downX, downY);
   }
 
   resetState();
@@ -360,14 +404,12 @@ function resetState() {
   _mixedInput = false;
   _lassoMode = false;
   _lassoBbox = null;
-  _preScanResult = null;
   _penAssistEvents = 0;
   _penAssistLastUp = 0;
 }
 
 function cancelGesture() {
   resetState();
-  _linkScanPromise = null;
   _multiTapTracking = null;
   // Note: _threeFingerTap is NOT cleared here -- it must persist across
   // gesture cycles so the second tap of a double-tap can be detected.
@@ -402,7 +444,7 @@ async function handleThreeFingerDoubleTap() {
     log('Gesture', 'handleThreeFingerDoubleTap: skipped, action already in progress');
     return;
   }
-  _actionInProgress = true;
+  const aid = beginAction();
 
   try {
     const config = await loadConfig();
@@ -415,45 +457,54 @@ async function handleThreeFingerDoubleTap() {
   } catch (e) {
     log('Gesture', `handleThreeFingerDoubleTap error: ${e.message}`);
   } finally {
-    _actionInProgress = false;
+    endAction(aid);
   }
 }
 
-// --- Pre-scan: runs on finger DOWN, overlapping with hold time ---
-// Uses a generation counter so stale scans bail out after each await
-// instead of piling up on the native AIDL bridge.
+// --- Link scan: runs AFTER gesture classification (finger UP), never on DOWN ---
+// This is the only place the gesture detector touches the SDK for page data.
+// Normal touches never reach here, so writing/scrolling costs zero bridge calls.
 
-async function preScanLinks(x, y, generation) {
+async function scanLinksAt(x, y) {
   try {
-    const [fpResult, pnResult] = await Promise.all([
+    const combined = await withTimeout(Promise.all([
       PluginCommAPI.getCurrentFilePath(),
       PluginCommAPI.getCurrentPageNum(),
-    ]);
+    ]));
 
-    if (generation !== _scanGeneration) return null; // stale
+    if (!combined) {
+      log('Gesture', 'Link scan: page context timed out');
+      return null;
+    }
+    const [fpResult, pnResult] = combined;
 
     const filePath = fpResult?.result || '';
     const pageNum = pnResult?.result ?? 0;
 
     if (!filePath) {
-      log('Gesture', 'Pre-scan: no active note');
+      log('Gesture', 'Link scan: no active note');
       return null;
     }
 
-    log('Gesture', `Pre-scan: page ${pageNum} of ${filePath} at (${Math.round(x)},${Math.round(y)})`);
+    log('Gesture', `Link scan: page ${pageNum} of ${filePath} at (${Math.round(x)},${Math.round(y)})`);
 
-    const elemResult = await PluginFileAPI.getElements(pageNum, filePath);
+    const elemPromise = PluginFileAPI.getElements(pageNum, filePath);
+    const elemResult = await withTimeout(elemPromise);
 
-    if (generation !== _scanGeneration) {
-      // Stale -- recycle and bail
-      if (elemResult?.result) recycleAll(elemResult.result);
+    if (!elemResult) {
+      log('Gesture', 'Link scan: getElements timed out');
+      // If the hung call resolves later, recycle its elements -- otherwise
+      // every timeout leaks a page's worth of native-side element memory.
+      elemPromise.then(r => {
+        if (r?.result) recycleAll(r.result);
+      }).catch(() => {});
       return null;
     }
 
     if (!elemResult?.success || !elemResult.result) {
       const errCode = elemResult?.error?.code ?? elemResult?.error ?? 'unknown';
       const errMsg = elemResult?.error?.message ?? '';
-      log('Gesture', `Pre-scan: getElements failed (code=${errCode}${errMsg ? ' msg=' + errMsg : ''} page=${pageNum} success=${elemResult?.success} resultType=${typeof elemResult?.result})`);
+      log('Gesture', `Link scan: getElements failed (code=${errCode}${errMsg ? ' msg=' + errMsg : ''} page=${pageNum} success=${elemResult?.success} resultType=${typeof elemResult?.result})`);
       return null;
     }
 
@@ -463,12 +514,12 @@ async function preScanLinks(x, y, generation) {
     );
 
     if (stLinks.length === 0) {
-      log('Gesture', 'Pre-scan: no supertask links on page');
+      log('Gesture', 'Link scan: no supertask links on page');
       recycleAll(elements);
       return null;
     }
 
-    log('Gesture', `Pre-scan: ${stLinks.length} links, hit-testing...`);
+    log('Gesture', `Link scan: ${stLinks.length} links, hit-testing...`);
 
     // Hit-test against touch point
     for (const el of stLinks) {
@@ -481,25 +532,25 @@ async function preScanLinks(x, y, generation) {
 
         if (x >= left && x <= right && y >= top && y <= bottom) {
           const taskId = link.destPath.replace('supertask://task/', '');
-          log('Gesture', `Pre-scan: hit link -> task ${taskId}`);
+          log('Gesture', `Link scan: hit link -> task ${taskId}`);
           recycleAll(elements);
           return {taskId};
         }
       }
     }
 
-    log('Gesture', `Pre-scan: no hit among ${stLinks.length} links`);
+    log('Gesture', `Link scan: no hit among ${stLinks.length} links`);
     recycleAll(elements);
     return null;
   } catch (e) {
-    log('Gesture', `Pre-scan error: ${e.message}`);
+    log('Gesture', `Link scan error: ${e.message}`);
     return null;
   }
 }
 
 // --- Pen-lasso-assist action ---
 // When finger was held during a pen lasso, check if native lasso data is
-// available. If getLassoElements() returns elements, open QuickAdd.
+// available. If getLassoRect() returns a rect, open QuickAdd.
 // If it returns error 904 (no lasso), the user was just writing -- do nothing.
 
 async function handlePenLassoAssist() {
@@ -507,12 +558,12 @@ async function handlePenLassoAssist() {
     log('Gesture', 'handlePenLassoAssist: skipped, action already in progress');
     return;
   }
-  _actionInProgress = true;
+  const aid = beginAction();
 
   try {
     // Quick check: is a native lasso selection active?
     // If not (error 904 = no lasso), the user was just writing -- bail silently.
-    const rectResult = await PluginCommAPI.getLassoRect();
+    const rectResult = await withTimeout(PluginCommAPI.getLassoRect());
 
     if (!rectResult?.success || !rectResult.result) {
       const code = rectResult?.error?.code;
@@ -529,26 +580,23 @@ async function handlePenLassoAssist() {
   } catch (e) {
     log('Gesture', `handlePenLassoAssist error: ${e.message}`);
   } finally {
-    _actionInProgress = false;
+    endAction(aid);
   }
 }
 
 // --- Long press action ---
 
-async function handleLongPress() {
+async function handleLongPress(x, y) {
   if (_actionInProgress) {
     log('Gesture', 'handleLongPress: skipped, action already in progress');
     return;
   }
-  _actionInProgress = true;
+  const aid = beginAction();
 
   try {
-    const scanPromise = _linkScanPromise;
     cancelGesture(); // Prevent re-entry
 
-    if (!scanPromise) return;
-
-    const result = await scanPromise;
+    const result = await scanLinksAt(x, y);
     if (!result) {
       log('Gesture', 'No link at touch point, ignoring');
       return;
@@ -564,31 +612,27 @@ async function handleLongPress() {
   } catch (e) {
     log('Gesture', `Error in handleLongPress: ${e.message}`);
   } finally {
-    _actionInProgress = false;
+    endAction(aid);
   }
 }
 
 // --- Lasso-add action ---
 
-async function handleLassoAdd(bbox) {
+async function handleLassoAdd(bbox, downX, downY) {
   if (_actionInProgress) {
     log('Gesture', 'handleLassoAdd: skipped, action already in progress');
     return;
   }
-  _actionInProgress = true;
+  const aid = beginAction();
 
   try {
-    // Gate: if pre-scan found a supertask link at the DOWN point, abort.
-    // The pre-scan has already resolved by finger UP (runs during hold time).
-    const scanPromise = _linkScanPromise;
-    try {
-      const scanResult = scanPromise ? await scanPromise : null;
-      if (scanResult?.taskId) {
-        log('Gesture', `LASSO-ADD ABORTED: DOWN point on existing task ${scanResult.taskId}`);
-        return;
-      }
-    } catch (e) {
-      // Pre-scan failed -- proceed with lasso-add
+    // Gate: if the DOWN point sits on an existing supertask link, abort --
+    // that content is already captured. Scan runs here (post-classification),
+    // so it only costs SDK calls on an actual lasso-add gesture.
+    const scanResult = await scanLinksAt(downX, downY);
+    if (scanResult?.taskId) {
+      log('Gesture', `LASSO-ADD ABORTED: DOWN point on existing task ${scanResult.taskId}`);
+      return;
     }
 
     const rect = {
@@ -600,7 +644,7 @@ async function handleLassoAdd(bbox) {
 
     log('Gesture', `lassoElements rect: l=${rect.left} t=${rect.top} r=${rect.right} b=${rect.bottom}`);
 
-    const result = await PluginCommAPI.lassoElements(rect);
+    const result = await withTimeout(PluginCommAPI.lassoElements(rect));
     log('Gesture', `lassoElements result: ${JSON.stringify(result)}`);
 
     // lassoElements returns {success: true, result: false} when the API call
@@ -616,7 +660,7 @@ async function handleLassoAdd(bbox) {
   } catch (e) {
     log('Gesture', `handleLassoAdd error: ${e.message}`);
   } finally {
-    _actionInProgress = false;
+    endAction(aid);
   }
 }
 

@@ -40,7 +40,10 @@ const DEFAULT_CONFIG = {
   defaultScreen: 'task-home',
   debugMode: false,
   markAsTextFontSize: 32,
-  lassoGestureInput: 'finger', // 'off', 'finger', or 'pen-lasso'
+  // 'off', 'finger', or 'pen-lasso'. Controls the quick-add lasso gesture only;
+  // long press and three-finger double tap are always active. Default 'off':
+  // hold-then-drag resembles a paused scroll, so it is opt-in (session 34).
+  lassoGestureInput: 'off',
 };
 
 // Fields that get obfuscated on disk

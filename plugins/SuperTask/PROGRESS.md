@@ -4,7 +4,188 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 31 complete.** Three-finger double tap replaces bezel swipe. Major architectural fix: removed manual gesture enable/disable lifecycle (`_enabled` flag + `setGestureEnabled`). The `_enabled` flag leak was the root cause of gesture unreliability across sessions (B-012 was a red herring). Gestures now rely on the SDK's natural touch interception -- no manual toggle needed.
+**Session 34 complete (code + docs; NOT yet built or tested on-device).** Gesture stability overhaul: event-driven watchdog replaces timer-only B-019 fix, native element leak on scan timeout fixed (B-020), pre-scan-on-every-DOWN removed -- `onMsg` is now SDK-free (B-021), lasso-add default changed to 'off'. Plugin is currently uninstalled from the device; this is the build intended for reinstall.
+
+## Session 34 -- Gesture stability overhaul (B-019 watchdog, B-020 leak, B-021 SDK-free onMsg)
+
+Branch: `main`
+
+### Context
+
+Plugin was uninstalled from the device due to conflicts with regular note-taking and stability concerns (see `docs/handoff-gesture-stability.md`). This session implemented the fixes needed before reinstall.
+
+### What's done
+
+1. **B-019 amendment: the session 33 `withTimeout` fix could not have worked on its own.**
+   - Flaw: `withTimeout` races SDK calls against `setTimeout`, but JS timers are suspended while the plugin view is closed (our own documented on-device learning from session 17) -- and gestures ONLY run while the view is closed. The safety net was made of the same suspended machinery it was protecting against.
+   - New fix: **event-driven watchdog** in `onMsg`. If `_actionInProgress` has been held > 8s (`WATCHDOG_MS`), the next motion event force-clears it. Motion events are the one stream guaranteed to keep flowing while the view is closed. Worst case: one dropped gesture, never a dead session.
+   - **Action token** (`_actionId`, `beginAction()`/`endAction(id)`): if the watchdog force-clears and a hung handler later resumes, its `finally` is a no-op instead of clobbering a newer action's guard.
+   - `withTimeout` retained as first line of defense for contexts where timers do run.
+
+2. **B-020: native element leak on scan timeout fixed.**
+   - When `withTimeout(getElements(...))` timed out, the still-pending promise's eventual result was never `recycle()`d -- each timeout leaked a page of native-side elements.
+   - Fix: on timeout, attach a `.then()` continuation to the original promise that recycles late-arriving elements.
+
+3. **B-021: `onMsg` is now SDK-free (architectural refactor).**
+   - Removed `preScanLinks`-on-every-DOWN (3 AIDL calls per finger touch, including during active writing -- leading hypothesis for the device-level interference).
+   - `onFingerDown`/`onFingerMove`/`onFingerUp` are pure JS: coordinates, timestamps, drift, pointer counts only.
+   - New `scanLinksAt(x, y)` runs only AFTER classification: in `handleLongPress` (link hit-test) and in `handleLassoAdd` (existing-link gate, replacing the sync `_preScanResult` fast-path).
+   - Removed: `_linkScanPromise`, `_preScanResult`, `_scanGeneration` (no overlapping scans anymore -- scans run serially inside `_actionInProgress`).
+   - Cost: long press does its scan after UP instead of overlapping the hold (~0.5-1s added before view opens; imperceptible next to showPluginView's ~2s). Decided against caching filePath/pageNum: scans are now so rare that a TTL cache would only add wrong-page staleness risk after page turns.
+   - Answers handoff doc Phase 2 Hypotheses A & B by construction: normal touches now cost zero SDK calls and near-zero JS work.
+
+4. **Lasso-add default 'off' + config semantics fix.**
+   - `lassoGestureInput` default changed 'finger' -> 'off' in `config.js`. Rationale: hold-400ms-then-drag is indistinguishable from a paused scroll; false activations mid-note-taking are the other suspected driver of the "device feels unreliable" complaint.
+   - Semantics fix: 'off' previously set `_configOff = true`, killing ALL gestures including long press and three-finger tap -- contradicting the Settings UI hint "Long press on a linked task always works (any mode)". Now 'off' only disables the quick-add gesture (`_gestureMode = 'off'`); `_configOff` removed entirely. Code now matches the UI promise.
+   - Note for existing installs: config file persists in MyStyle/SuperTask/ across reinstalls, so a user who previously saved 'finger' keeps 'finger'. Only fresh configs get the new default.
+
+### What needs testing on-device (next session)
+
+1. **Watchdog recovery**: reproduce the B-019 scenario (touch canvas while plugin view showing / during wifi dialog, trigger a long press so a handler hangs), then verify gestures recover after ~8s + one touch. Look for `WATCHDOG: _actionInProgress stuck` in dev logs.
+2. **Long press latency**: link long-press now scans after UP -- confirm it still feels acceptable.
+3. **Lasso-add gate**: enable 'finger' mode in settings, verify lasso-add still blocked when starting on a linked task (gate moved to `handleLassoAdd`).
+4. **Device feel during normal writing**: the whole point of B-021 -- extended normal note-taking session with the plugin installed, no gestures, verify no interference.
+5. **Timer suspension check** (nice-to-have): log whether `withTimeout` ever fires while the view is closed -- confirms/refutes the timer-suspension assumption for the record.
+
+### What's NOT done (carried forward)
+
+- On-device testing of everything above (plugin still uninstalled)
+- B-015: external user getElements diagnostics (per-touch spam should be gone post-B-021; scan success still unknown)
+- B-004: Today/Upcoming tab filtering (enabledProjectIds)
+- B-005: Renaming a note breaks task back-references
+- B-014: Hardcoded A5X page size
+- F-021: bezel swipe reintroduction
+- T-004: SDK optimization pass
+
+### Builds
+
+- No build this session -- code + docs only. Build fresh before reinstall (verify dev server IP in `config.local.js` first).
+
+### Code changes
+
+- `src/utils/gestureDetector.js` -- rewritten: event-driven watchdog + action token (B-019), timeout-leak recycling (B-020), SDK-free `onMsg` with post-classification `scanLinksAt` (B-021), `_configOff` removed, quick-add-only 'off' semantics
+- `src/utils/config.js` -- `lassoGestureInput` default 'finger' -> 'off'
+- `src/screens/Config.tsx` -- initial state matches new default
+- `index.js` -- comment updated for new architecture
+- `docs/tracker.md` -- B-019 amended, B-020/B-021 added, F-015 + B-015 notes updated
+- `docs/handoff-gesture-stability.md` -- section 5 updated with the timer-suspension flaw + session 34 fix
+
+## Session 33 -- Gesture death fix (B-019), cache/prefetch confirmed
+
+Branch: `main`
+
+### What's done
+
+1. **B-019: Gesture detector death fix**
+   - Root cause: SDK calls in `preScanLinks` (`getCurrentFilePath`, `getCurrentPageNum`) hang indefinitely when the plugin view is showing or during system-level interactions (wifi dialog, etc.). If a long press fires while the pre-scan is stuck, `handleLongPress` awaits the hung promise with `_actionInProgress = true`. The `onMsg` handler's `if (_actionInProgress) return;` check at the top silently drops ALL future motion events. Gestures never recover.
+   - Evidence: On-device log showed DOWN at (259,109) with no "Pre-scan: page..." log (SDK calls hung), then LONG PRESS DETECTED, then zero gesture events for the rest of the session (all opens via toolbar BUTTON).
+   - Fix: `withTimeout(promise, 5000)` wrapper on all SDK awaits in gesture handlers. Returns null on timeout, existing null-checks handle gracefully, `finally` block resets `_actionInProgress`.
+   - 7 call sites wrapped: `preScanLinks` (getCurrentFilePath+getCurrentPageNum, getElements), `handleLongPress` (scanPromise), `handleLassoAdd` (scanPromise, lassoElements), `handlePenLassoAssist` (getLassoRect).
+
+2. **B-017 confirmed on-device** -- log shows "Joining existing in-flight fetch" when TaskHome mounts during prefetch.
+
+3. **B-018 confirmed on-device** -- warm opens show "Cache hit: 13 tasks (age: Xms)" at mount. Warm perceived latency ~1s (showPluginView overhead). Cold start ~5s (2s showPluginView + 2s RN mount, unavoidable SDK overhead).
+
+4. **Dev server IP updated** -- `config.local.js` changed from `192.168.68.68` to `192.168.68.58` (IP changed). Requires rebuild to take effect (bundled into Hermes).
+
+### On-device log analysis (2026-07-06)
+
+Timing breakdown from three-finger double tap to task list visible:
+- **Cold start**: gesture T+0 -> showPluginView T+2s -> React mount T+4s -> data T+5s -> registry T+9s
+- **Warm start**: gesture T+0 -> cache hit + navigate T+0 -> visible at T+1s (showPluginView)
+- Prefetch wins the race: API calls start at T+0 in gesture handler, responses arrive at T+5, React mounts at T+4 and joins in-flight fetch via dedup
+
+### What's NOT done (carried forward)
+
+- B-019: needs on-device testing to confirm timeout prevents gesture death
+- B-015: external user getElements diagnostics
+- B-004: Today/Upcoming tab filtering (enabledProjectIds)
+- B-005: Renaming a note breaks task back-references
+- B-014: Hardcoded A5X page size
+- F-021: bezel swipe implementation
+- T-004: SDK optimization pass
+
+### Next session
+
+- Test B-019 fix on-device: reproduce the scenario (open debug screen, touch screen while plugin view is showing, close, verify gestures still work)
+- Rebuild with updated dev server IP to get live logs flowing again
+- B-004 (Today/Upcoming filtering) is a quick win
+
+### Builds
+
+- Build 1: SDK timeout fix (B-019), updated dev server IP
+
+### Code changes
+
+- `src/utils/gestureDetector.js` -- `withTimeout()` helper, 7 SDK call sites wrapped with 5s timeout
+- `config.local.js` -- dev server IP updated to 192.168.68.58
+
+## Session 32 -- Task cache, prefetch, filesystem plugin concept
+
+Branch: `main`
+
+### What's done
+
+1. **Task data cache + prefetch (B-017, B-018)**
+   - New `src/cache/taskCache.js`: module-level cache with fetch deduplication (`_inflightPromise`)
+   - Gesture handler (`handleThreeFingerDoubleTap`) now calls `fetchTaskData()` fire-and-forget BEFORE `openPluginView()` -- API calls start during React mount
+   - TaskHome reads cache on mount for instant render (stale-while-revalidate), refreshes in background
+   - `invalidateCache()` added at all mutation sites: TaskHome complete, TaskDetail complete/delete, TaskAdd create, QuickAdd create
+   - B-017: concurrent mounts share one API call via dedup
+   - B-018: cached data renders in ~100-300ms on second+ open instead of waiting for network
+
+2. **F-017 complete -- tempLinkNav.js deleted**
+   - Dead code since session 30 (native intent navigation replaced it)
+   - No remaining imports or references
+
+3. **F-021 added to tracker -- bezel swipe reintroduction**
+   - Optional gesture alongside three-finger double tap
+   - Wider bezel zone (3-5%), config-gated (default off), simpler trigger
+   - Feasible now that the `_enabled` lifecycle bug is fixed
+
+4. **Filesystem enhancement plugin concept**
+   - New design doc: `docs/design-filesystem-plugin.md`
+   - Separate plugin from SuperTask: note creation with naming conventions, quick page creation with date headers, TOC generation, folder dashboard
+   - SDK APIs confirmed: `createNote`, `insertNotePage`, `insertElements`, `getTitles`, `getKeyWords`, `FileUtils.listFiles/makeDir`, native intents
+
+5. **Committed sessions 28-31** (was all uncommitted)
+
+### On-device test results (2026-07-06)
+
+- **Cache + prefetch: PARTIAL.** Improvement visible but still feels a bit slow. Needs further investigation -- possible areas: (1) is the prefetch actually completing before TaskHome mounts? (2) is the cache read path fast enough? (3) is showPluginView itself the bottleneck? Check dev server logs for timing.
+
+### What's NOT done (carried forward)
+
+- B-018: further speed investigation (prefetch timing, showPluginView latency, possible disk cache for cold starts)
+- B-017: verify dedup is working via dev server logs (look for "Joining existing in-flight fetch")
+- B-015: external user getElements diagnostics
+- B-004: Today/Upcoming tab filtering (enabledProjectIds)
+- B-005: Renaming a note breaks task back-references
+- B-014: Hardcoded A5X page size
+- F-021: bezel swipe implementation
+- T-004: SDK optimization pass (remaining on-device tests)
+
+### Next session
+
+- Review dev server logs from B-018 testing -- where is the remaining time going?
+- Consider: disk cache for cold start, earlier showPluginView call (before config load?), reducing React mount overhead
+- B-004 (Today/Upcoming filtering) is a quick win
+- Filesystem plugin: scaffold from template if ready to prototype
+
+### Builds
+
+- Build 1: Task cache + prefetch, tempLinkNav deletion
+
+### Code changes
+
+- `src/cache/taskCache.js` -- new module (cache + dedup + invalidation)
+- `src/utils/gestureDetector.js` -- prefetch call in handleThreeFingerDoubleTap
+- `src/screens/TaskHome.tsx` -- cache-aware mount, applyData/reconcileRegistry helpers, simplified fetchData
+- `src/screens/TaskAdd.tsx` -- invalidateCache after createTask
+- `src/screens/QuickAdd.tsx` -- invalidateCache after createTask
+- `src/screens/TaskDetail.tsx` -- invalidateCache after completeTask/deleteTask
+- `src/utils/tempLinkNav.js` -- deleted (F-017 complete)
+- `docs/tracker.md` -- F-017 done, F-021 added, B-017/B-018 status updated
 
 ## Session 31 -- Three-finger double tap, gesture lifecycle fix
 
