@@ -57,9 +57,25 @@ Plugin was uninstalled from the device due to conflicts with regular note-taking
 - F-021: bezel swipe reintroduction
 - T-004: SDK optimization pass
 
+### Codebase audit (same session, after the gesture work)
+
+Full stability audit of screens + utils/api/native layer. Findings logged as tracker items:
+- **B-022 (critical)**: no fetch timeout anywhere + `taskCache._inflightPromise` poisoning -- one hung fetch kills task loading for the life of the process
+- **B-023 (critical)**: `getLassoElements()` results never recycled in QuickAdd/Capture/ocr.js -- native memory leak on every capture
+- **B-024 (high)**: untimed SDK awaits freeze screens while holding guard flags (TaskAdd duplicate-task risk, QuickAdd un-dismissable overlay, TaskDetail stuck buttons in deep-link mode)
+- **B-025 (medium)**: non-atomic RNFS writes + RMW races (config/registry corruption; registry parse failure wipes task index)
+- **B-026 (medium)**: `btoa` throw on non-ASCII config value silently discards saved config including API token
+- **B-027 (medium)**: Diagnostics motion listener has no unmount cleanup (double-listening + setState after unmount)
+- **T-005**: batch of low-severity items (stale `__superTaskButtonId`, unused `defaultScreen`, Capture navigate-while-hidden, pagination cap, 429 handling, debug URL staleness)
+
+Verified clean: pagination unwrapping (`fetchAllPages` follows `next_cursor` correctly), debug.js log buffer (bounded at 500 entries), NoteOpenerModule.kt (all promise paths settle), timer-after-close patterns in screens, config singleton staleness. ocr.js and the rewritten gestureDetector.js noted as exemplary on timeout/recycle discipline.
+
+**Fix order recommendation:** test tonight's build as-is (isolate the gesture overhaul), then a "stability pass 2" for B-022/B-023/B-024 before daily-driver use. B-023 matters most for the original device-degradation complaint; B-022 matters most for perceived reliability.
+
 ### Builds
 
-- No build this session -- code + docs only. Build fresh before reinstall (verify dev server IP in `config.local.js` first).
+- **Session 34 build: `build/outputs/SuperTask.snplg` (2026-07-23 20:36)** -- gesture overhaul (B-019/B-020/B-021 + lasso-add default off). Audit findings B-022..B-027 are NOT fixed in this build (deliberate -- isolate the gesture changes for testing).
+- NOTE: `config.local.js` currently has `debugServerUrl: 'http://Alexs-MacBook-Pro.local:3000/log'` (mDNS hostname). Android often cannot resolve `.local` names -- if no logs arrive during testing, switch to the Mac's LAN IP and rebuild.
 
 ### Code changes
 
