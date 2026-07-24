@@ -45,11 +45,18 @@ Decision: local capture is the source of truth, network is opportunistic, URL is
 5. **dev-server.js**: GET `/ping` identity endpoint (`{ok, service: 'supertask-dev-server'}`) -- manual reachability check from the device browser today, subnet-discovery probe target in F-022 phase 2. Startup message now points at the Settings field instead of config.local.
 6. `config.local.js` fallback updated to LAN IP `192.168.68.55` (was an unresolvable `.local` hostname; Mac IP has drifted .68 -> .58 -> .55 across sessions, hence the runtime-config fix).
 
+### Pass 3 additions: server setup UX + identity
+
+1. **Ping tester**: "Test" button next to the Debug Log Server field -- probes `<base>/ping` with a 5s abort timeout (falls back to `GET /` for older dev-server builds), reports reachable/unreachable with actionable hints. Tests the field value pre-save so typos are caught early.
+2. **Setup popup**: "?" next to the field opens step-by-step Mac (Terminal) and Windows (PowerShell, firewall prompt) instructions for `node dev-server.js`, plus troubleshooting (same wifi, LAN IP not .local, IP drift needs no reinstall).
+3. **Portability for future plugins**: generic `template/dev-server.js` (service id `sn-plugin-dev-server`, neutral filenames), debugging section added to `template/README.md`, CLAUDE.md "Debugging on-device" rewritten around the local-first pattern. The in-plugin pieces to copy for a new plugin: `src/utils/debug.js` (needs react-native-fs for the session file) + the Debug Log Server block in `Config.tsx`.
+4. **Plugin identity in sidebar**: toolbar button 100 renamed 'Tasks' -> 'SuperTask' (the sidebar plugins list shows the button name, not PluginConfig name); new 48x48 icon -- bold checkbox with checkmark sweeping out the top-right -- replaces the default-looking puzzle piece (old icon kept as `assets/icon-puzzle-old.png`).
+
 ### Builds
 
 - **`SuperTask-s34-gestures-only.snplg`** (2026-07-23 20:36) -- part 1 only; bisect fallback, not for primary testing
-- **`SuperTask.snplg`** (2026-07-24, pass 3) -- **install this one**: gesture overhaul + stability pass 2 + bezel swipe + local-first logging
-- First run: check Settings > Connections > Debug Log Server shows the right IP (dev server prints it on startup); `session.log` should appear in MyStyle/SuperTask/logs/ after ~25 log entries
+- **`SuperTask.snplg`** (2026-07-24, pass 3 final) -- **install this one**: gesture overhaul + stability pass 2 + bezel swipe + local-first logging + ping tester/setup popup + new icon + 'SuperTask' sidebar name
+- First run: check Settings > Connections > Debug Log Server shows the right IP (dev server prints it on startup; use Test button), and verify the sidebar shows the checkmark icon named 'SuperTask'; `session.log` should appear in MyStyle/SuperTask/logs/ after ~25 log entries
 
 ### On-device test additions for pass 2
 

@@ -103,12 +103,13 @@ Key SDK source files to check:
 
 ### Debugging on-device
 - No dev console on Supernote. ADB logcat is also blocked.
-- **Primary method: HTTP dev log server.** Plugin POSTs logs via `fetch()` to a local Node server on same wifi.
-  - Server: `node dev-server.js` in the plugin directory (zero dependencies)
-  - URL configured in `config.local.js` as `debugServerUrl` (e.g., `http://192.168.68.68:3000/log`)
+- **Local-first logging (SuperTask pattern, session 34 -- copy for new plugins).** Every log entry ALWAYS appends to a rotating on-device file (`MyStyle/<Plugin>/logs/session.log`, event-driven batches -- JS timers suspend while the plugin view is closed, so never flush on a timer). Network upload is an opportunistic layer, never the only copy.
+- **HTTP dev log server.** Plugin POSTs logs via `fetch()` to a local Node server on same wifi.
+  - Server: `node dev-server.js` in the plugin directory (zero dependencies; generic copy in `template/dev-server.js`). `GET /ping` returns `{ok, service}` for reachability checks.
+  - URL is runtime-configurable: saved config overrides the bundled `config.local.js` fallback (SuperTask: Settings > Connections > Debug Log Server, with a Test/ping button and Mac/Windows setup popup; or USB-edit the plugin's JSON config). IP changes need no rebuild. **Use the LAN IP -- Android cannot resolve `.local` hostnames.**
   - Logs print to terminal in real-time and save to `logs/` directory
-  - Button: "Upload Log" in the debug screen
-- **Fallback: in-app log viewer.** `src/utils/debug.js` collects `[timestamp] tag: message` entries, screens subscribe via `setListener()`.
+  - Button: "Upload Log" in the debug screen (10s abort timeout; on failure writes a timestamped export file on-device)
+- **Fallback: in-app log viewer.** `src/utils/debug.js` collects `[timestamp] tag: message` entries (2000-entry ring buffer), screens subscribe via `setListener()`.
 - **Fallback: insertText.** If dev server is unreachable, logs are inserted as a text box on the current note page.
 - Log at every boundary: config load, API request/response, SDK calls, screen transitions.
 

@@ -54,6 +54,8 @@ export default function Config({onNavigate, nav}: Props) {
   const [lassoGestureInput, setLassoGestureInput] = useState('off');
   const [bezelSwipeEnabled, setBezelSwipeEnabled] = useState(false);
   const [debugServerUrl, setDebugServerUrlField] = useState('');
+  const [showServerInfo, setShowServerInfo] = useState(false);
+  const [pingStatus, setPingStatus] = useState('');
   const [showTokenInfo, setShowTokenInfo] = useState(false);
   const [showGestureInfo, setShowGestureInfo] = useState(false);
 
@@ -161,6 +163,53 @@ export default function Config({onNavigate, nav}: Props) {
     setTimeout(() => setSaveStatus(''), 2000);
   };
 
+  // Ping the dev server. Tests the FIELD value (pre-save) so a typo is caught
+  // before committing it to config. Tries /ping (identity endpoint); falls
+  // back to GET / for older dev-server builds without /ping.
+  const handleTestServer = async () => {
+    const url = debugServerUrl.trim();
+    if (!url) {
+      setPingStatus('Enter a URL first (tap ? for setup help)');
+      return;
+    }
+    const base = url.replace(/\/log\/?$/, '');
+    setPingStatus('Testing...');
+    log('Config', `Server ping test: ${base}/ping`);
+
+    const tryFetch = async (target: string) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        return await fetch(target, {signal: controller.signal});
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    try {
+      const resp = await tryFetch(`${base}/ping`);
+      const data = await resp.json().catch(() => null);
+      if (resp.ok && data?.ok) {
+        setPingStatus(`Server reachable: ${data.service || 'ok'}`);
+        log('Config', 'Server ping: OK');
+        return;
+      }
+      // Older dev-server without /ping returns 404 there but 200 on /
+      const rootResp = await tryFetch(base + '/');
+      if (rootResp.ok) {
+        setPingStatus('Server reachable (older dev-server.js -- restart it to get /ping)');
+        return;
+      }
+      setPingStatus(`Reached ${base} but got HTTP ${rootResp.status} -- is this the log server?`);
+    } catch (e: any) {
+      const msg = e?.name === 'AbortError'
+        ? 'No response in 5s -- check IP, same wifi, server running, firewall'
+        : `Failed: ${e?.message}`;
+      setPingStatus(msg);
+      log('Config', `Server ping failed: ${e?.message}`);
+    }
+  };
+
   const sourceLabel = (s: string) => {
     switch (s) {
       case 'file': return 'Device file';
@@ -213,18 +262,29 @@ export default function Config({onNavigate, nav}: Props) {
 
       <View style={s.separator} />
 
-      <Text style={s.sectionTitle}>Debug Log Server</Text>
-      <TextInput
-        style={s.input}
-        value={debugServerUrl}
-        onChangeText={setDebugServerUrlField}
-        placeholder="http://192.168.x.x:3000/log"
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
+      <View style={s.inlineRow}>
+        <Text style={s.sectionTitle}>Debug Log Server</Text>
+        <Pressable style={s.infoBtn} onPress={() => setShowServerInfo(true)}>
+          <Text style={s.infoBtnText}>?</Text>
+        </Pressable>
+      </View>
+      <View style={s.tokenRow}>
+        <TextInput
+          style={[s.input, {flex: 1}]}
+          value={debugServerUrl}
+          onChangeText={setDebugServerUrlField}
+          placeholder="http://192.168.x.x:3000/log"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Pressable style={s.btnSmall} onPress={handleTestServer}>
+          <Text style={s.btnSmallText}>Test</Text>
+        </Pressable>
+      </View>
+      {pingStatus ? <Text style={s.hint}>  {pingStatus}</Text> : null}
       <Text style={s.hint}>
-        Where Upload Log sends logs (use your Mac's LAN IP, not a .local name).
-        Logs always also write to MyStyle/SuperTask/logs/session.log.
+        Where Upload Log sends logs (computer's LAN IP, not a .local name). Tap ? for
+        setup. Logs always also write to MyStyle/SuperTask/logs/session.log.
       </Text>
 
       <View style={s.separator} />
@@ -473,6 +533,59 @@ export default function Config({onNavigate, nav}: Props) {
             </Text>
 
             <Pressable style={s.overlayCloseBtn} onPress={() => setShowTokenInfo(false)}>
+              <Text style={s.overlayCloseBtnText}>Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      )}
+
+      {/* Debug server info popup */}
+      {showServerInfo && (
+        <Pressable style={s.overlayCenter} onPress={() => setShowServerInfo(false)}>
+          <Pressable style={s.overlayModal} onPress={() => {}}>
+            <Text style={s.overlayTitle}>Debug Log Server Setup</Text>
+            <Text style={s.overlayHint}>
+              The plugin can stream debug logs over wifi to a small server on your computer.
+              This is optional -- logs are ALWAYS saved on the device at MyStyle/SuperTask/logs/session.log,
+              retrievable via USB.
+            </Text>
+
+            <View style={s.overlaySeparator} />
+
+            <Text style={s.methodLabel}>Mac</Text>
+            <Text style={s.methodBody}>
+              1. Install Node.js from nodejs.org (or: brew install node){'\n'}
+              2. Open Terminal{'\n'}
+              3. cd into the plugin's source folder (it contains dev-server.js){'\n'}
+              4. Run: node dev-server.js{'\n'}
+              {'\n'}
+              The server prints its address, e.g. http://192.168.1.20:3000/log -- enter that in the field, tap Save, then Test.
+            </Text>
+
+            <View style={s.overlaySeparator} />
+
+            <Text style={s.methodLabel}>Windows</Text>
+            <Text style={s.methodBody}>
+              1. Install Node.js from nodejs.org{'\n'}
+              2. Open PowerShell (or Command Prompt){'\n'}
+              3. cd into the plugin's source folder (it contains dev-server.js){'\n'}
+              4. Run: node dev-server.js{'\n'}
+              5. If Windows Firewall asks, click Allow (private networks){'\n'}
+              {'\n'}
+              Enter the printed address in the field, tap Save, then Test.
+            </Text>
+
+            <View style={s.overlaySeparator} />
+
+            <Text style={s.methodLabel}>If Test fails</Text>
+            <Text style={s.methodBody}>
+              Supernote and computer must be on the SAME wifi network. Use the computer's
+              LAN IP address (192.168.x.x) -- Android cannot resolve .local names. If your
+              computer's IP changed, the server prints the new one on startup; update the
+              field here (no reinstall needed).
+            </Text>
+
+            <Pressable style={s.overlayCloseBtn} onPress={() => setShowServerInfo(false)}>
               <Text style={s.overlayCloseBtnText}>Close</Text>
             </Pressable>
           </Pressable>

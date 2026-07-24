@@ -95,3 +95,26 @@ To learn more about React Native, take a look at the following resources:
 - [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
 - [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
 - [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+
+---
+
+# Supernote plugin debugging (dev log server)
+
+There is no dev console on the Supernote and ADB logcat is blocked. Use the
+included zero-dependency log server instead:
+
+1. Install Node.js (nodejs.org; Mac alternative: `brew install node`)
+2. Terminal (Mac) or PowerShell (Windows): `cd` into this plugin folder
+3. Run `node dev-server.js` -- it prints the URL to configure in the plugin
+   (Windows: allow it through the firewall for private networks when prompted)
+4. Both devices must be on the same wifi. Use the LAN IP the server prints --
+   Android cannot resolve `.local` hostnames.
+5. `GET /ping` returns `{ok, service}` -- use it as a reachability check from
+   the device or a browser.
+
+For the in-plugin side (buffered logging, local-first session file, upload
+with timeout, on-device URL config + ping tester), copy the pattern from
+`plugins/SuperTask`: `src/utils/debug.js` (file persistence needs
+`react-native-fs`) and the "Debug Log Server" section of
+`src/screens/Config.tsx`. Logs should ALWAYS persist locally
+(MyStyle/<Plugin>/logs/) with the network as an opportunistic layer.

@@ -29,10 +29,11 @@ initGestureDetector();
 
 const icon = Image.resolveAssetSource(require('./assets/icon.png')).uri;
 
-// Toolbar in NOTE - opens task viewer
+// Toolbar in NOTE - opens task viewer. Named 'SuperTask' (not 'Tasks') so the
+// plugin is identifiable in the sidebar plugins list among other plugins.
 PluginManager.registerButton(1, ['NOTE'], {
   id: 100,
-  name: 'Tasks',
+  name: 'SuperTask',
   icon,
   showType: 1,
 });
