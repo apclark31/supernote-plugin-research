@@ -1,13 +1,18 @@
 /**
- * TaskRow - task row with drawn checkbox and chip metadata (F-024).
+ * TaskRow - task row with drawn checkbox and chip metadata (F-024/F-025).
  *
  * Metadata is rendered as bordered chips (the ONE idiom -- see Chip.tsx):
  * [P1] [Jul 28] [Work] [p.4] [pending sync]. Overdue inverts. The checkbox
- * is the shared drawn Check box (same language as the settings screen),
- * never a text glyph.
+ * is the shared drawn Check box, never a text glyph.
+ *
+ * Completion is ARM-THEN-CONFIRM (F-025): the first tap fills the box and
+ * shows a "Tap again to complete" chip; the second tap within 3s completes;
+ * otherwise it disarms. One accidental e-ink tap can no longer complete a
+ * task sight-unseen. In `checked` mode (Done tab) a single tap reopens --
+ * that action is inherently recoverable, so it needs no arming.
  */
 
-import React from 'react';
+import React, {useState, useRef, useEffect} from 'react';
 import {View, Text, Pressable, StyleSheet} from 'react-native';
 import {log} from '../utils/debug';
 import Chip from './Chip';
@@ -20,22 +25,51 @@ const PRIORITY_LABELS: Record<number, string> = {
   1: '',
 };
 
+const ARM_WINDOW_MS = 3000;
+
 type Props = {
   task: any;
   onComplete: (taskId: string) => void;
   onPress: (task: any) => void;
   showProject?: string;
   pageNum?: number;
+  checked?: boolean;      // Done-tab mode: box filled, tap = reopen
+  completedAt?: string;   // ISO completion timestamp -> "Done Jul 24" chip
 };
 
-export default function TaskRow({task, onComplete, onPress, showProject, pageNum}: Props) {
+export default function TaskRow({task, onComplete, onPress, showProject, pageNum, checked, completedAt}: Props) {
+  const [armed, setArmed] = useState(false);
+  const armTimer = useRef<any>(null);
+  useEffect(() => () => { if (armTimer.current) clearTimeout(armTimer.current); }, []);
+
+  const handleCheckPress = () => {
+    if (checked) {
+      log('TaskRow', `REOPEN pressed id=${task.id}`);
+      onComplete(task.id);
+      return;
+    }
+    if (armed) {
+      log('TaskRow', `COMPLETE confirmed id=${task.id}`);
+      if (armTimer.current) clearTimeout(armTimer.current);
+      setArmed(false);
+      onComplete(task.id);
+    } else {
+      log('TaskRow', `COMPLETE armed id=${task.id}`);
+      setArmed(true);
+      if (armTimer.current) clearTimeout(armTimer.current);
+      armTimer.current = setTimeout(() => setArmed(false), ARM_WINDOW_MS);
+    }
+  };
+
   const priorityLabel = PRIORITY_LABELS[task.priority] || '';
   const dueDate = task.due?.date || '';
   const today = new Date().toISOString().slice(0, 10);
-  const isOverdue = dueDate && dueDate < today;
+  const isOverdue = !checked && dueDate && dueDate < today;
   const isToday = dueDate === today;
 
   const chips: Array<{label: string; inverted?: boolean}> = [];
+  if (armed) chips.push({label: 'Tap again to complete', inverted: true});
+  if (completedAt) chips.push({label: `Done ${formatDate(completedAt.slice(0, 10))}`});
   if (isOverdue) chips.push({label: `Overdue ${formatDate(dueDate)}`, inverted: true});
   else if (isToday) chips.push({label: 'Today'});
   else if (dueDate) chips.push({label: formatDate(dueDate)});
@@ -46,11 +80,8 @@ export default function TaskRow({task, onComplete, onPress, showProject, pageNum
 
   return (
     <Pressable style={styles.row} onPress={() => { log('TaskRow', `ROW pressed id=${task.id}`); onPress(task); }}>
-      <Pressable
-        style={styles.checkTarget}
-        onPress={() => { log('TaskRow', `CHECKBOX pressed id=${task.id}`); onComplete(task.id); }}
-        hitSlop={6}>
-        <Check checked={false} />
+      <Pressable style={styles.checkTarget} onPress={handleCheckPress} hitSlop={6}>
+        <Check checked={!!checked || armed} />
       </Pressable>
       <View style={styles.content}>
         <Text style={styles.title}>{task.content}</Text>

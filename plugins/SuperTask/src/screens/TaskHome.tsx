@@ -16,7 +16,7 @@ import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask} from '../utils/taskRegistry';
 import {loadConfig} from '../utils/config';
-import {completeTask} from '../api/todoist';
+import {completeTask, reopenTask, getCompletedTasks} from '../api/todoist';
 import {getCache, fetchTaskData, invalidateCache} from '../cache/taskCache';
 import {log, logError} from '../utils/debug';
 import TabBar from '../components/TabBar';
@@ -41,6 +41,7 @@ const TABS = [
   {key: 'upcoming', label: 'Upcoming'},
   {key: 'projects', label: 'Projects'},
   {key: 'device', label: 'On Device'},
+  {key: 'done', label: 'Done'},
 ];
 
 const TAB_KEYS = TABS.map(t => t.key);
@@ -61,6 +62,13 @@ export default function TaskHome({nav, focusTab}: Props) {
   const [registryNoteTasks, setRegistryNoteTasks] = useState<any[]>([]);
   const [deviceTasks, setDeviceTasks] = useState<any[]>([]);
   const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>([]);
+
+  // Done tab: fetched lazily on first visit (separate endpoint, not part of
+  // the main cache -- completed history changes rarely and can be large)
+  const [doneTasks, setDoneTasks] = useState<any[]>([]);
+  const [doneLoading, setDoneLoading] = useState(false);
+  const [doneError, setDoneError] = useState('');
+  const [doneFetched, setDoneFetched] = useState(false);
 
   // Load default tab from config and detect current page on mount
   useEffect(() => {
@@ -217,6 +225,40 @@ export default function TaskHome({nav, focusTab}: Props) {
       });
   }, [applyData, reconcileRegistry]);
 
+  // Lazy-fetch completed tasks on first Done-tab visit
+  useEffect(() => {
+    if (activeTab !== 'done' || doneFetched || doneLoading) return;
+    (async () => {
+      setDoneLoading(true);
+      setDoneError('');
+      try {
+        const items = await getCompletedTasks(30);
+        setDoneTasks(items || []);
+        setDoneFetched(true);
+        log('TaskHome', `Done tab: ${items?.length ?? 0} completed tasks (30d)`);
+      } catch (err: any) {
+        logError('TaskHome', err);
+        setDoneError(`Could not load completed tasks: ${err.message}`);
+      } finally {
+        setDoneLoading(false);
+      }
+    })();
+  }, [activeTab, doneFetched, doneLoading]);
+
+  const handleReopen = async (taskId: string) => {
+    log('TaskHome', `REOPEN pressed taskId=${taskId}`);
+    try {
+      await reopenTask(taskId);
+      log('TaskHome', `REOPEN success taskId=${taskId}`);
+      setDoneTasks(prev => prev.filter(t => t.id !== taskId));
+      invalidateCache();
+      fetchData(true); // pull the reopened task back into the active lists
+    } catch (err: any) {
+      logError('TaskHome', err);
+      setDoneError(`Reopen failed: ${err.message}`);
+    }
+  };
+
   const handleComplete = async (taskId: string) => {
     log('TaskHome', `COMPLETE pressed taskId=${taskId}`);
     try {
@@ -337,7 +379,60 @@ export default function TaskHome({nav, focusTab}: Props) {
     if (activeTab === 'today') return renderTodayTab();
     if (activeTab === 'upcoming') return renderUpcomingTab();
     if (activeTab === 'device') return renderDeviceTab();
+    if (activeTab === 'done') return renderDoneTab();
     return renderProjectsTab();
+  };
+
+  const renderDoneTab = () => {
+    if (doneLoading) {
+      return (
+        <View style={styles.centered}>
+          <Text style={styles.loadingText}>Loading completed tasks...</Text>
+        </View>
+      );
+    }
+    if (doneError) {
+      return (
+        <View style={styles.centered}>
+          <Text style={styles.errorText}>{doneError}</Text>
+        </View>
+      );
+    }
+    if (doneTasks.length === 0) {
+      return (
+        <View style={styles.centered}>
+          <Text style={styles.emptyText}>Nothing completed in the last 30 days</Text>
+        </View>
+      );
+    }
+
+    const items = groupDoneByBucket(doneTasks, today);
+
+    return (
+      <FlatList
+        data={items}
+        keyExtractor={item => item.key}
+        renderItem={({item}) => {
+          if (item.type === 'header') {
+            return <SectionHeader title={item.title} count={item.count} />;
+          }
+          // Tap on the filled box reopens -- completion is fully recoverable
+          return (
+            <TaskRow
+              task={item.task}
+              checked
+              completedAt={item.task.completed_at}
+              onComplete={handleReopen}
+              onPress={handleTaskPress}
+              showProject={projectMap[item.task.project_id]}
+            />
+          );
+        }}
+        ItemSeparatorComponent={({leadingItem}) =>
+          leadingItem?.type !== 'header' ? <View style={styles.separator} /> : null
+        }
+      />
+    );
   };
 
   const renderTodayTab = () => {
@@ -585,12 +680,49 @@ export default function TaskHome({nav, focusTab}: Props) {
         <Text style={styles.footerText}>
           {taskCount} task{taskCount !== 1 ? 's' : ''}
         </Text>
-        <Pressable onPress={() => fetchData(true)}>
+        <Pressable onPress={() => {
+          fetchData(true);
+          if (activeTab === 'done') setDoneFetched(false); // refetch completed list too
+        }}>
           <Text style={styles.footerRefresh}>Refresh</Text>
         </Pressable>
       </View>
     </View>
   );
+}
+
+// Group completed tasks into recency buckets (newest first)
+function groupDoneByBucket(doneTasks: any[], today: string): any[] {
+  const yesterday = new Date(new Date(today + 'T00:00:00').getTime() - 86400000)
+    .toISOString().slice(0, 10);
+  const weekAgo = new Date(new Date(today + 'T00:00:00').getTime() - 7 * 86400000)
+    .toISOString().slice(0, 10);
+
+  const sorted = [...doneTasks].sort((a, b) =>
+    (b.completed_at || '').localeCompare(a.completed_at || ''));
+
+  const buckets: {today: any[]; yesterday: any[]; week: any[]; earlier: any[]} = {
+    today: [], yesterday: [], week: [], earlier: [],
+  };
+  for (const t of sorted) {
+    const d = (t.completed_at || '').slice(0, 10);
+    if (d === today) buckets.today.push(t);
+    else if (d === yesterday) buckets.yesterday.push(t);
+    else if (d >= weekAgo) buckets.week.push(t);
+    else buckets.earlier.push(t);
+  }
+
+  const items: any[] = [];
+  const pushBucket = (key: string, title: string, arr: any[]) => {
+    if (!arr.length) return;
+    items.push({key: `header-${key}`, type: 'header', title, count: arr.length});
+    arr.forEach(t => items.push({key: `done-${t.id}`, type: 'task', task: t}));
+  };
+  pushBucket('dtoday', 'Today', buckets.today);
+  pushBucket('dyesterday', 'Yesterday', buckets.yesterday);
+  pushBucket('dweek', 'This Week', buckets.week);
+  pushBucket('dearlier', 'Earlier', buckets.earlier);
+  return items;
 }
 
 // Filesystem-style note label: "/storage/emulated/0/Note/Connor/1x1.note"

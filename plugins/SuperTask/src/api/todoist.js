@@ -210,6 +210,25 @@ export async function completeTask(taskId) {
   return todoistFetch(`/tasks/${taskId}/close`, {method: 'POST'});
 }
 
+export async function reopenTask(taskId) {
+  return todoistFetch(`/tasks/${taskId}/reopen`, {method: 'POST'});
+}
+
+/**
+ * Completed tasks from the last N days (v1 unified API, paginated).
+ * Items carry completed_at plus the usual task fields.
+ */
+export async function getCompletedTasks(days = 30) {
+  const until = new Date();
+  const since = new Date(until.getTime() - days * 86400000);
+  const params =
+    `since=${encodeURIComponent(since.toISOString())}` +
+    `&until=${encodeURIComponent(until.toISOString())}`;
+  const items = await fetchAllPages('/tasks/completed/by_completion_date', params);
+  log('API', `getCompletedTasks(${days}d): ${items.length} tasks`);
+  return items;
+}
+
 export async function deleteTask(taskId) {
   return todoistFetch(`/tasks/${taskId}`, {method: 'DELETE'});
 }
