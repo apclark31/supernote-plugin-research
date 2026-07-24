@@ -17,6 +17,14 @@ import {setConfigLoader, getTasks, getProjects} from '../api/todoist';
 // --- Module state ---
 let _cache = null;            // {tasks: [], projects: [], timestamp: number}
 let _inflightPromise = null;  // Dedup guard: shared promise for concurrent callers
+let _inflightStart = 0;       // When the in-flight fetch started (staleness watchdog)
+
+// If an in-flight fetch is older than this, abandon it and start fresh.
+// Fetches now have a 20s abort timeout + retries (~65s worst case), but that
+// relies on JS timers, which are suspended while the plugin view is closed --
+// this identity check is the timer-free backstop so one wedged fetch can't
+// poison the dedup guard for the life of the process (B-022).
+const INFLIGHT_STALE_MS = 90000;
 
 /**
  * Return cached task/project data, or null if no cache exists.
@@ -36,14 +44,21 @@ export function getCache() {
  */
 export function fetchTaskData() {
   if (_inflightPromise) {
-    log('Cache', 'Joining existing in-flight fetch');
-    return _inflightPromise;
+    if (Date.now() - _inflightStart < INFLIGHT_STALE_MS) {
+      log('Cache', 'Joining existing in-flight fetch');
+      return _inflightPromise;
+    }
+    // Wedged fetch -- abandon it. If it ever resolves, its finally{} sees it
+    // no longer owns the slot and leaves the new fetch alone; a late success
+    // still writes _cache, which is fine (fresher data is always welcome).
+    log('Cache', `Abandoning stale in-flight fetch (${Math.round((Date.now() - _inflightStart) / 1000)}s old)`);
+    _inflightPromise = null;
   }
 
   log('Cache', 'Starting new fetch');
   setConfigLoader(loadConfig);
 
-  _inflightPromise = (async () => {
+  const promise = (async () => {
     try {
       const config = await loadConfig();
       if (!config.apiToken) {
@@ -70,11 +85,17 @@ export function fetchTaskData() {
       // Don't clear _cache -- stale data is better than nothing
       throw e;
     } finally {
-      _inflightPromise = null;
+      // Only clear the slot if this fetch still owns it (it may have been
+      // abandoned as stale and replaced while hung).
+      if (_inflightPromise === promise) {
+        _inflightPromise = null;
+      }
     }
   })();
 
-  return _inflightPromise;
+  _inflightPromise = promise;
+  _inflightStart = Date.now();
+  return promise;
 }
 
 /**

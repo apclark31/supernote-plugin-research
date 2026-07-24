@@ -9,10 +9,35 @@ import {log, logError} from '../utils/debug';
 
 const TODOIST_API = 'https://api.todoist.com/api/v1';
 
+// Without a timeout, a request that stalls mid-flight (wifi drop) leaves the
+// awaiting caller hung forever -- and anything holding a guard flag or dedup
+// promise on it stays locked for the life of the process (B-022).
+const FETCH_TIMEOUT_MS = 20000;
+
 let _configLoader = null;
 
 export function setConfigLoader(loader) {
   _configLoader = loader;
+}
+
+/**
+ * fetch() with an abort timeout. RN's fetch buffers the full response body
+ * natively, so only the request itself can hang -- body reads resolve from
+ * memory and don't need their own deadline.
+ */
+async function fetchWithTimeout(url, options = {}, ms = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, {...options, signal: controller.signal});
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error(`Request timed out after ${ms}ms`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function todoistFetch(path, options = {}) {
@@ -40,14 +65,23 @@ async function todoistFetch(path, options = {}) {
       await new Promise(r => setTimeout(r, delay));
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${config.apiToken}`,
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-    });
+    let response;
+    try {
+      response = await fetchWithTimeout(url, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${config.apiToken}`,
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
+    } catch (e) {
+      // Timeouts and network drops are retryable, same as 5xx
+      lastError = e;
+      log('API', `Request failed: ${e.message}`);
+      if (attempt < maxRetries) continue;
+      throw lastError;
+    }
 
     log('API', `Response: ${response.status}`);
 
@@ -90,10 +124,16 @@ function unwrapResult(result) {
  * Fetch all pages for a paginated endpoint.
  */
 async function fetchAllPages(path, params = '') {
+  const MAX_PAGES = 20; // safety ceiling: ~1000 items; a misbehaving cursor must not loop forever
   let allItems = [];
   let cursor = null;
+  let pages = 0;
 
   do {
+    if (++pages > MAX_PAGES) {
+      log('API', `Pagination CAPPED at ${MAX_PAGES} pages (${allItems.length} items) -- results truncated`);
+      break;
+    }
     const sep = params || cursor ? '?' : '';
     const cursorParam = cursor ? `cursor=${encodeURIComponent(cursor)}` : '';
     const joinChar = params && cursorParam ? '&' : '';

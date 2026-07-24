@@ -158,6 +158,18 @@ export default function TaskDetail({nav, task, projects}: Props) {
     }
   };
 
+  // After complete/delete: pop if there's a back stack; in deep-link mode
+  // (long press from note, no stack) nav.pop() is a no-op that used to leave
+  // the screen stuck with disabled buttons -- close back to the note instead.
+  const leaveAfterMutation = () => {
+    setSaving(false);
+    if (nav.canGoBack) {
+      nav.pop();
+    } else {
+      closePlugin();
+    }
+  };
+
   const handleComplete = async () => {
     log('TaskDetail', `COMPLETE pressed. taskId=${task?.id}`);
     setSaving(true);
@@ -167,7 +179,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
       invalidateCache();
       log('TaskDetail', `Completed task ${task.id}`);
       setStatus('Done!');
-      setTimeout(() => nav.pop(), 500);
+      setTimeout(leaveAfterMutation, 500);
     } catch (err: any) {
       logError('TaskDetail', err);
       setStatus(`Error: ${err.message}`);
@@ -189,7 +201,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
       invalidateCache();
       log('TaskDetail', `Deleted task ${task.id}`);
       setStatus('Deleted');
-      setTimeout(() => nav.pop(), 500);
+      setTimeout(leaveAfterMutation, 500);
     } catch (err: any) {
       logError('TaskDetail', err);
       setStatus(`Error: ${err.message}`);

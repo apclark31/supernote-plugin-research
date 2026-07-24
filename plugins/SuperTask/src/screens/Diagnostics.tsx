@@ -5,7 +5,7 @@
  * Results shown on screen and sent to dev log server.
  */
 
-import React, {useState, useRef} from 'react';
+import React, {useState, useRef, useEffect} from 'react';
 import {View, Text, Pressable, StyleSheet, ScrollView, Linking} from 'react-native';
 import {
   PluginCommAPI,
@@ -33,6 +33,9 @@ type TestResult = {
 let _motionSub: any = null;
 let _motionLog: string[] = [];
 let _motionCount = 0;
+// UI update hook -- set while the component is mounted, null otherwise, so a
+// listener that outlives a mount never calls setState on a dead component (B-027)
+let _uiNotify: ((lines: string[]) => void) | null = null;
 
 // Android MotionEvent: lower 8 bits = action, upper bits = pointer index
 const BASE_ACTIONS: Record<number, string> = {0: 'DOWN', 1: 'UP', 2: 'MOVE', 3: 'CANCEL', 5: 'PTR_DOWN', 6: 'PTR_UP'};
@@ -69,6 +72,22 @@ export default function Diagnostics({nav}: Props) {
   const [motionActive, setMotionActive] = useState(!!_motionSub);
   const [motionEvents, setMotionEvents] = useState<string[]>([..._motionLog]);
 
+  // Register the UI hook for the module-level listener; on unmount (user
+  // navigated to another screen) stop the listener entirely -- the captured
+  // log survives in _motionLog, but a diagnostics listener must never keep
+  // running alongside the gesture detector for the rest of the session (B-027).
+  useEffect(() => {
+    _uiNotify = setMotionEvents;
+    return () => {
+      _uiNotify = null;
+      if (_motionSub) {
+        _motionSub.remove();
+        _motionSub = null;
+        log('Diag', `Motion listener auto-stopped on screen exit. Total events: ${_motionCount}`);
+      }
+    };
+  }, []);
+
   const startMotionListener = () => {
     // Clean up any existing listener
     if (_motionSub) {
@@ -101,8 +120,8 @@ export default function Diagnostics({nav}: Props) {
         // Store in module-level log (survives remount)
         _motionLog = [line, ..._motionLog].slice(0, 200);
 
-        // Update UI if component is mounted
-        setMotionEvents([..._motionLog]);
+        // Update UI only while the component is mounted
+        if (_uiNotify) _uiNotify([..._motionLog]);
       },
     });
     log('Diag', 'Motion listener registered');

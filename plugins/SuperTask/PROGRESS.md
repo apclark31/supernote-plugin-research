@@ -4,7 +4,51 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 34 complete (code + docs; NOT yet built or tested on-device).** Gesture stability overhaul: event-driven watchdog replaces timer-only B-019 fix, native element leak on scan timeout fixed (B-020), pre-scan-on-every-DOWN removed -- `onMsg` is now SDK-free (B-021), lasso-add default changed to 'off'. Plugin is currently uninstalled from the device; this is the build intended for reinstall.
+**Session 34 complete through stability pass 2.** Part 1 (gesture overhaul): event-driven watchdog for B-019, scan-timeout leak fix (B-020), SDK-free `onMsg` (B-021), lasso-add default off -- built 2026-07-23, under on-device test as `SuperTask-s34-gestures-only.snplg`. Part 2 (stability pass 2, built 2026-07-24 as `SuperTask.snplg`): all six audit findings fixed (B-022..B-027), three T-005 lows fixed, bezel swipe reintroduced config-gated (F-021), gesture options research written up (`docs/design-gesture-options.md`).
+
+## Session 34 (continued) -- Stability pass 2, bezel swipe, gesture research
+
+### Stability pass 2 (audit fixes)
+
+1. **B-022**: `fetchWithTimeout` (AbortController, 20s) in `todoist.js`; timeouts/network errors are retryable like 5xx. `taskCache.fetchTaskData` abandons in-flight fetches older than 90s via identity-checked slot -- timer-free backstop, so one wedged fetch can never poison the dedup guard for the session. Also `MAX_PAGES=20` pagination cap with truncation log.
+2. **B-023**: shared `recycleElements()` exported from `ocr.js`; `QuickAdd.captureLasso` and `Capture.captureLasso` recycle in `finally` on all paths.
+3. **B-024**: `withTimeout` on every SDK await in `TaskAdd.handleSubmit`/`handleConvertToText` and `QuickAdd.handleConvertToText`/`handleDone` (5-8s); TaskAdd `submitting` reset moved to `finally`; TaskDetail complete/delete use `leaveAfterMutation` (pop with stack, `closePlugin()` in deep-link mode -- previously stuck with disabled buttons).
+4. **B-025**: temp-file+rename atomic writes for config + registry, crash recovery reads the temp file if the main file vanished mid-swap, registry mutations serialized through a promise chain, config load dedup + save chain.
+5. **B-026**: `obfuscate()` keeps the plain value if `btoa` throws (non-ASCII); the auto-obfuscation rewrite in `loadFromFile` is isolated so it can never abort the load and drop the config/token.
+6. **B-027**: Diagnostics motion listener stopped on screen unmount (captured log survives in module state); UI updates via module-level `_uiNotify` hook -- no setState on dead components. Fixed a latent missing `useEffect` import.
+7. **T-005 partial**: `__superTaskButtonId` consumed on read in `getInitialScreen` (item 1); Capture `cancelledRef` blocks navigate-after-close (item 3); pagination cap (item 4). Items 2 (defaultScreen unused), 5 (429 Retry-After), 6 (debug URL staleness) remain.
+
+### F-021: Bezel swipe reintroduced (config-gated, default OFF)
+
+- Parameters from the gesture research: bottom **4%** zone, **>=2** pointers, **150px** upward displacement (**80px** for 3+ fingers), **3500ms** max duration (the old 1200ms limit caused 13/13 failures).
+- Zone threshold self-calibrates from observed max y in the event stream (default 1871) -- zero SDK calls, keeps `onMsg` pure per B-021.
+- Misreported-DOWN recovery: multi-finger bezel entries whose DOWN lands mid-page fall into multi-tap tracking; `onMultiTapEnd` reclassifies by upward displacement (taps have near-zero travel), so phantom pointers can't false-fire it.
+- Bezel-zone DOWNs are excluded from long-press/lasso paths. Three-finger double tap and bezel swipe share `openTaskHome()`.
+- Config: `bezelSwipeEnabled` (default false), checkbox in Settings > Handwriting. Enable it during testing via the checkbox; a false-positive-free session of normal writing with it ON is the acceptance test.
+
+### Gesture research (docs/design-gesture-options.md)
+
+New design doc distilling gesture-research.md + design-gesture-audit.md + design-gesture-guards.md: device facts table (pointer-count variance 3 vs 5 across devices, phantom multi-touch, swipe timing), the shipped bezel parameters, ranked candidate gestures (Tier A: two-finger tap, two-finger directional swipes -- both documented-reliable), and a configurability matrix (expose on/off + bindings + hold duration; hardcode disambiguation internals). F-022 added to tracker for the holistic logging architecture (file capture -> self-healing transport -> optional remote relay).
+
+### TS baseline note
+
+`npx tsc --noEmit` has 76 pre-existing errors (build uses Metro/Babel, no type-checking). Pass 2 verified zero NEW errors against the HEAD baseline; one real latent bug found this way (missing `useEffect` import in Diagnostics).
+
+### Builds
+
+- **`SuperTask-s34-gestures-only.snplg`** (2026-07-23 20:36) -- part 1 only, the build currently under on-device test
+- **`SuperTask.snplg`** (2026-07-24 09:16) -- stability pass 2 + bezel swipe, install this after part-1 testing
+- Reminder: `config.local.js` debugServerUrl uses `Alexs-MacBook-Pro.local` -- Android often can't resolve `.local`; use the LAN IP if logs don't arrive.
+
+### On-device test additions for pass 2
+
+1. Wifi-drop test: open TaskHome, kill wifi mid-load -- list must error/recover within ~65s worst case, and recover fully on next open (B-022)
+2. Repeated lasso captures (10+) -- no progressive sluggishness (B-023)
+3. Complete a task from a long-press deep link -- screen must close back to the note, not freeze (B-024)
+4. Enable bezel swipe in settings, test 2- and 3-finger swipes from bottom edge; then write normally near the bottom for a while -- no false fires
+5. Three-finger double tap must still work with bezel swipe enabled (both paths share multi-tap tracking)
+
+## Session 34 -- Gesture stability overhaul (B-019 watchdog, B-020 leak, B-021 SDK-free onMsg)
 
 ## Session 34 -- Gesture stability overhaul (B-019 watchdog, B-020 leak, B-021 SDK-free onMsg)
 

@@ -21,7 +21,7 @@ import {loadConfig} from '../utils/config';
 import {setConfigLoader, createTask, getProjects} from '../api/todoist';
 import {invalidateCache} from '../cache/taskCache';
 import {log, logError} from '../utils/debug';
-import {recognizeLassoElements} from '../utils/ocr';
+import {recognizeLassoElements, recycleElements} from '../utils/ocr';
 import {addTask as registryAddTask} from '../utils/taskRegistry';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
@@ -139,52 +139,59 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     log('QuickAdd', `getLassoElements: success=${elements?.success} count=${elements?.result?.length ?? 0}`);
 
     if (!elements?.success || !elements?.result?.length) {
+      recycleElements(elements?.result);
       setErrorText('No elements selected. Lasso some handwriting first.');
       setPhase('error');
       return null;
     }
 
-    // OCR via shared utility (filters to supported types, logs diagnostics)
-    const qaLog = (msg: string) => log('QuickAdd', msg);
-    setStatusText('Recognizing handwriting...');
-    const ocr = await recognizeLassoElements(elements.result, qaLog);
-
-    if (!ocr.success) {
-      setErrorText('Could not recognize handwriting. Try selecting clearer text.');
-      setPhase('error');
-      return null;
-    }
-
-    const capturedContent = ocr.text;
-    const {filePath, pageNum, pageSize} = ocr.pageContext;
-    log('QuickAdd', `Recognized: "${capturedContent.slice(0, 60)}"`);
-
-    // Get exact lasso bounds in pixel coordinates from the active selection
-    let bounds = null;
+    // Elements hold native-side memory -- recycle on every exit path (B-023)
+    const els = elements.result;
     try {
-      const lassoRect = await withTimeout(PluginCommAPI.getLassoRect(), 3000, 'getLassoRect');
-      if (lassoRect?.success && lassoRect.result) {
-        bounds = lassoRect.result;
-        log('QuickAdd', `getLassoRect: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom}`);
-      } else {
-        log('QuickAdd', `getLassoRect failed: ${JSON.stringify(lassoRect)}`);
+      // OCR via shared utility (filters to supported types, logs diagnostics)
+      const qaLog = (msg: string) => log('QuickAdd', msg);
+      setStatusText('Recognizing handwriting...');
+      const ocr = await recognizeLassoElements(els, qaLog);
+
+      if (!ocr.success) {
+        setErrorText('Could not recognize handwriting. Try selecting clearer text.');
+        setPhase('error');
+        return null;
       }
-    } catch (e: any) {
-      log('QuickAdd', `getLassoRect error: ${e.message}`);
+
+      const capturedContent = ocr.text;
+      const {filePath, pageNum, pageSize} = ocr.pageContext;
+      log('QuickAdd', `Recognized: "${capturedContent.slice(0, 60)}"`);
+
+      // Get exact lasso bounds in pixel coordinates from the active selection
+      let bounds = null;
+      try {
+        const lassoRect = await withTimeout(PluginCommAPI.getLassoRect(), 3000, 'getLassoRect');
+        if (lassoRect?.success && lassoRect.result) {
+          bounds = lassoRect.result;
+          log('QuickAdd', `getLassoRect: l=${bounds.left} t=${bounds.top} r=${bounds.right} b=${bounds.bottom}`);
+        } else {
+          log('QuickAdd', `getLassoRect failed: ${JSON.stringify(lassoRect)}`);
+        }
+      } catch (e: any) {
+        log('QuickAdd', `getLassoRect error: ${e.message}`);
+      }
+
+      // Collect element IDs for Mark as Text (no marking until user confirms)
+      const lassoElementIds = els.map((el: any) => ({
+        uuid: el.uuid,
+        numInPage: el.numInPage,
+        type: el.type,
+      }));
+
+      const fileName = filePath?.split('/').pop()?.replace('.note', '') || 'note';
+      const noteDescription = `From: ${fileName} p.${pageNum}`;
+
+      const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, lassoElementIds} : null;
+      return {content: capturedContent, description: noteDescription, noteContext};
+    } finally {
+      recycleElements(els);
     }
-
-    // Collect element IDs for Mark as Text (no marking until user confirms)
-    const lassoElementIds = elements.result.map((el: any) => ({
-      uuid: el.uuid,
-      numInPage: el.numInPage,
-      type: el.type,
-    }));
-
-    const fileName = filePath?.split('/').pop()?.replace('.note', '') || 'note';
-    const noteDescription = `From: ${fileName} p.${pageNum}`;
-
-    const noteContext = bounds ? {filePath, pageNum, bounds, pageSize, lassoElementIds} : null;
-    return {content: capturedContent, description: noteDescription, noteContext};
   };
 
   const handleSubmit = async () => {
@@ -251,7 +258,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     try {
       // Step 1: Delete handwriting strokes from the still-active lasso
       log('QuickAdd', 'deleteLassoElements');
-      const deleteResult = await PluginCommAPI.deleteLassoElements();
+      const deleteResult = await withTimeout(PluginCommAPI.deleteLassoElements(), 8000, 'deleteLassoElements');
       log('QuickAdd', `deleteLassoElements: ${JSON.stringify(deleteResult)}`);
 
       // Step 2: Insert text + supertask link in one call (replaces 5 separate calls)
@@ -268,7 +275,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       };
       const destPath = `supertask://task/${task?.id}`;
       log('QuickAdd', `insertTextLink: l=${textRect.left} t=${textRect.top} fontSize=${fontSize} dest=${destPath}`);
-      const linkResult = await PluginNoteAPI.insertTextLink({
+      const linkResult = await withTimeout(PluginNoteAPI.insertTextLink({
         destPath,
         destPage: 0,
         style: 2,
@@ -278,18 +285,18 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         fullText: textContent,
         showText: textContent,
         isItalic: 0,
-      });
+      }), 8000, 'insertTextLink');
       log('QuickAdd', `insertTextLink: ${JSON.stringify(linkResult)}`);
 
       // Step 3: Save to flush both delete + insert
-      await PluginNoteAPI.saveCurrentNote();
+      await withTimeout(PluginNoteAPI.saveCurrentNote(), 8000, 'saveCurrentNote');
       log('QuickAdd', 'saveCurrentNote');
 
       // Step 4: Re-lasso the text so user can reposition after plugin closes
       try {
         const lr = lassoRect(textRect);
         log('QuickAdd', `lassoElements for reposition: ${JSON.stringify(lr)}`);
-        const lassoResult = await (PluginCommAPI as any).lassoElements(lr);
+        const lassoResult = await withTimeout((PluginCommAPI as any).lassoElements(lr), 5000, 'lassoElements');
         log('QuickAdd', `lassoElements: ${JSON.stringify(lassoResult)}`);
       } catch (e: any) {
         log('QuickAdd', `Re-lasso failed (non-fatal): ${e.message}`);
@@ -324,21 +331,21 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     try {
       const destPath = `supertask://task/${task?.id}`;
       log('QuickAdd', `setLassoStrokeLink: destPath=${destPath}`);
-      const markResult = await PluginNoteAPI.setLassoStrokeLink({
+      const markResult = await withTimeout(PluginNoteAPI.setLassoStrokeLink({
         destPath,
         destPage: 0,
         style: 2,
         linkType: 4,
-      });
+      }), 8000, 'setLassoStrokeLink');
       log('QuickAdd', `setLassoStrokeLink result: ${JSON.stringify(markResult)}`);
-      await PluginNoteAPI.saveCurrentNote();
+      await withTimeout(PluginNoteAPI.saveCurrentNote(), 8000, 'saveCurrentNote');
       log('QuickAdd', 'Auto-mark applied');
 
       // Re-lasso the handwriting so user can reposition after plugin closes
       try {
         const lr = lassoRect(bounds);
         log('QuickAdd', `Re-lasso handwriting: ${JSON.stringify(lr)}`);
-        const reLasso = await (PluginCommAPI as any).lassoElements(lr);
+        const reLasso = await withTimeout((PluginCommAPI as any).lassoElements(lr), 5000, 'lassoElements');
         log('QuickAdd', `Re-lasso result: ${JSON.stringify(reLasso)}`);
       } catch (e: any) {
         log('QuickAdd', `Re-lasso failed: ${e.message}`);

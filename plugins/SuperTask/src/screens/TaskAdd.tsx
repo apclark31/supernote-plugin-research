@@ -30,6 +30,19 @@ type Nav = {
   canGoBack: boolean;
 };
 
+// Timeout wrapper -- SDK calls can hang forever on device. Without it, a hang
+// after createTask succeeds leaves `submitting` stuck and a retry creates a
+// duplicate Todoist task (B-024).
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      (val) => { clearTimeout(timer); resolve(val); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
+  });
+}
+
 type LassoElementId = {
   uuid: string;
   numInPage: number;
@@ -117,14 +130,14 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
           setStatus('Marking task...');
           const destPath = `supertask://task/${task?.id}`;
           log('TaskAdd', `setLassoStrokeLink: destPath=${destPath}`);
-          const markResult = await PluginNoteAPI.setLassoStrokeLink({
+          const markResult = await withTimeout(PluginNoteAPI.setLassoStrokeLink({
             destPath,
             destPage: 0,
             style: 2,
             linkType: 4,
-          });
+          }), 8000, 'setLassoStrokeLink');
           log('TaskAdd', `setLassoStrokeLink result: ${JSON.stringify(markResult)}`);
-          await PluginNoteAPI.saveCurrentNote();
+          await withTimeout(PluginNoteAPI.saveCurrentNote(), 8000, 'saveCurrentNote');
           setMarkDone('handwriting');
           log('TaskAdd', 'Auto-mark applied');
         } catch (err: any) {
@@ -139,7 +152,6 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         });
       }
 
-      setSubmitting(false);
       if (postCreateAction === 'auto-back') {
         setStatus('Task added!');
         setTimeout(() => nav.pop(), 500);
@@ -150,6 +162,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     } catch (err: any) {
       logError('TaskAdd', err);
       setStatus(`Error: ${err.message}`);
+    } finally {
       setSubmitting(false);
     }
   };
@@ -200,13 +213,13 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       // Step 1: Re-lasso the handwriting to get a fresh lasso context
       // (original capture context expired during TaskAdd navigation)
       log('TaskAdd', `Re-lasso handwriting: ${JSON.stringify(bounds)}`);
-      const reLassoHw = await (PluginCommAPI as any).lassoElements(bounds);
+      const reLassoHw: any = await withTimeout((PluginCommAPI as any).lassoElements(bounds), 5000, 'lassoElements');
       log('TaskAdd', `Re-lasso handwriting result: ${JSON.stringify(reLassoHw)}`);
 
       // Step 2: Delete the lasso'd handwriting
       if (reLassoHw?.success) {
         log('TaskAdd', 'Calling deleteLassoElements');
-        const deleteResult = await PluginCommAPI.deleteLassoElements();
+        const deleteResult = await withTimeout(PluginCommAPI.deleteLassoElements(), 8000, 'deleteLassoElements');
         log('TaskAdd', `deleteLassoElements result: ${JSON.stringify(deleteResult)}`);
       } else {
         log('TaskAdd', 'Re-lasso failed, skipping delete');
@@ -226,7 +239,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       };
       const destPath = `supertask://task/${createdTask?.id}`;
       log('TaskAdd', `insertTextLink: l=${textRect.left} t=${textRect.top} fontSize=${fontSize} dest=${destPath}`);
-      const linkResult = await PluginNoteAPI.insertTextLink({
+      const linkResult = await withTimeout(PluginNoteAPI.insertTextLink({
         destPath,
         destPage: 0,
         style: 2,
@@ -236,18 +249,18 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         fullText: textContent,
         showText: textContent,
         isItalic: 0,
-      });
+      }), 8000, 'insertTextLink');
       log('TaskAdd', `insertTextLink: ${JSON.stringify(linkResult)}`);
 
       // Step 4: Save to flush both delete + insert
-      await PluginNoteAPI.saveCurrentNote();
+      await withTimeout(PluginNoteAPI.saveCurrentNote(), 8000, 'saveCurrentNote');
       log('TaskAdd', 'saveCurrentNote');
 
       // Re-lasso the text so user can reposition after plugin closes
       try {
         const lr = makeLassoRect(textRect);
         log('TaskAdd', `lassoElements for reposition: ${JSON.stringify(lr)}`);
-        const lassoResult = await (PluginCommAPI as any).lassoElements(lr);
+        const lassoResult = await withTimeout((PluginCommAPI as any).lassoElements(lr), 5000, 'lassoElements');
         log('TaskAdd', `lassoElements: ${JSON.stringify(lassoResult)}`);
       } catch (e: any) {
         log('TaskAdd', `Re-lasso failed (non-fatal): ${e.message}`);

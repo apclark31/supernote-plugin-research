@@ -52,6 +52,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [debugMode, setDebugMode] = useState(false);
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
   const [lassoGestureInput, setLassoGestureInput] = useState('off');
+  const [bezelSwipeEnabled, setBezelSwipeEnabled] = useState(false);
   const [showTokenInfo, setShowTokenInfo] = useState(false);
   const [showGestureInfo, setShowGestureInfo] = useState(false);
 
@@ -75,6 +76,7 @@ export default function Config({onNavigate, nav}: Props) {
         : config.lassoGestureInput === 'pen-lasso' ? 'pen-lasso'
         : 'finger'
       );
+      if (config.bezelSwipeEnabled !== undefined) setBezelSwipeEnabled(config.bezelSwipeEnabled === true);
 
       setConfigSource(getConfigSource());
 
@@ -147,6 +149,7 @@ export default function Config({onNavigate, nav}: Props) {
       debugMode,
       markAsTextFontSize,
       lassoGestureInput,
+      bezelSwipeEnabled,
     });
     setSaving(false);
     setSaveStatus(saved ? 'Saved to device' : 'Saved (session only)');
@@ -334,6 +337,11 @@ export default function Config({onNavigate, nav}: Props) {
         </Pressable>
       </View>
       <Text style={s.hint}>  Long press on a linked task always works (any mode)</Text>
+
+      <Pressable style={s.radioRow} onPress={() => setBezelSwipeEnabled(!bezelSwipeEnabled)}>
+        <Text style={s.checkbox}>{bezelSwipeEnabled ? '[X]' : '[  ]'}</Text>
+        <Text style={s.radioLabel}>Bezel swipe: 2+ fingers up from bottom edge opens tasks</Text>
+      </Pressable>
 
       <Text style={s.sectionTitle}>Mark as text font size</Text>
       <View style={s.inlineRow}>

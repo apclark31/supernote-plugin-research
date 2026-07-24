@@ -44,6 +44,9 @@ const DEFAULT_CONFIG = {
   // long press and three-finger double tap are always active. Default 'off':
   // hold-then-drag resembles a paused scroll, so it is opt-in (session 34).
   lassoGestureInput: 'off',
+  // Bezel swipe (F-021): 2+ fingers up from the bottom edge opens task home.
+  // Opt-in while it re-proves itself on-device (session 34).
+  bezelSwipeEnabled: false,
 };
 
 // Fields that get obfuscated on disk
@@ -94,11 +97,19 @@ function xorDecode(encoded) {
 }
 
 /**
- * Obfuscate a string value
+ * Obfuscate a string value. If encoding throws (btoa fails on any XOR'd char
+ * code > 255, e.g. a smart-quote pasted into the config via USB), keep the
+ * plain value rather than losing it -- a throw here used to silently discard
+ * the ENTIRE saved config including the API token (B-026).
  */
 function obfuscate(value) {
   if (!value) return value;
-  return OBF_PREFIX + xorEncode(value);
+  try {
+    return OBF_PREFIX + xorEncode(value);
+  } catch (e) {
+    log('Config', `Obfuscation failed (non-ASCII value?), keeping plain text: ${e.message}`);
+    return value;
+  }
 }
 
 /**
@@ -139,6 +150,27 @@ function obfuscateConfig(config) {
   return result;
 }
 
+const CONFIG_TMP = CONFIG_FILE + '.tmp';
+
+/**
+ * Write the config file atomically: full temp file first, then swap in.
+ * A process kill mid-write can no longer truncate the config (B-025).
+ */
+async function writeConfigFile(obj) {
+  const dirExists = await RNFS.exists(CONFIG_DIR);
+  if (!dirExists) {
+    await RNFS.mkdir(CONFIG_DIR);
+    log('Config', 'Created config directory');
+  }
+  const json = JSON.stringify(obj, null, 2);
+  await RNFS.writeFile(CONFIG_TMP, json, 'utf8');
+  try {
+    await RNFS.unlink(CONFIG_FILE);
+  } catch {}
+  await RNFS.moveFile(CONFIG_TMP, CONFIG_FILE);
+  return json.length;
+}
+
 /**
  * Generate a template config file on first launch.
  * Only runs if no config file exists. The template contains a placeholder
@@ -149,17 +181,7 @@ async function generateTemplate() {
     const exists = await RNFS.exists(CONFIG_FILE);
     if (exists) return false;
 
-    const dirExists = await RNFS.exists(CONFIG_DIR);
-    if (!dirExists) {
-      await RNFS.mkdir(CONFIG_DIR);
-      log('Config', 'Created config directory');
-    }
-
-    const template = {
-      apiToken: PLACEHOLDER_TOKEN,
-    };
-    const json = JSON.stringify(template, null, 2);
-    await RNFS.writeFile(CONFIG_FILE, json, 'utf8');
+    await writeConfigFile({apiToken: PLACEHOLDER_TOKEN});
     _templateGenerated = true;
     log('Config', `Generated template config at ${CONFIG_FILE}`);
     return true;
@@ -182,25 +204,39 @@ function isRealValue(value) {
  */
 async function loadFromFile() {
   try {
+    let readPath = CONFIG_FILE;
     const exists = await RNFS.exists(CONFIG_FILE);
     if (!exists) {
-      log('Config', 'Config file not found');
-      return null;
+      // Crash recovery: if we died between writing the temp file and the
+      // rename, the temp file holds the last complete config.
+      if (await RNFS.exists(CONFIG_TMP)) {
+        log('Config', 'Main config missing, recovering from temp file');
+        readPath = CONFIG_TMP;
+      } else {
+        log('Config', 'Config file not found');
+        return null;
+      }
     }
-    const json = await RNFS.readFile(CONFIG_FILE, 'utf8');
+    const json = await RNFS.readFile(readPath, 'utf8');
     const data = JSON.parse(json);
     if (data && typeof data === 'object') {
-      // Check if any sensitive fields are plain text and need obfuscation
-      const hasPlainText = SENSITIVE_KEYS.some(
-        k => data[k] && isRealValue(data[k]) && !isObfuscated(data[k]),
-      );
+      // Check if any sensitive fields are plain text and need obfuscation.
+      // This rewrite is best-effort: a failure here must never abort the
+      // load itself (it used to bubble to the outer catch and drop the
+      // whole config -- B-026).
+      try {
+        const hasPlainText = SENSITIVE_KEYS.some(
+          k => data[k] && isRealValue(data[k]) && !isObfuscated(data[k]),
+        );
 
-      if (hasPlainText) {
-        log('Config', 'Found plain text sensitive fields, obfuscating...');
-        const obfuscated = obfuscateConfig(data);
-        const updatedJson = JSON.stringify(obfuscated, null, 2);
-        await RNFS.writeFile(CONFIG_FILE, updatedJson, 'utf8');
-        log('Config', 'Config file updated with obfuscated values');
+        if (hasPlainText) {
+          log('Config', 'Found plain text sensitive fields, obfuscating...');
+          const obfuscated = obfuscateConfig(data);
+          await writeConfigFile(obfuscated);
+          log('Config', 'Config file updated with obfuscated values');
+        }
+      } catch (e) {
+        log('Config', `Obfuscation rewrite failed (non-fatal): ${e.message}`);
       }
 
       const decoded = deobfuscateConfig(data);
@@ -223,48 +259,59 @@ async function loadFromFile() {
 /**
  * Write config to JSON file on device (obfuscates sensitive fields)
  */
-async function saveToFile(config) {
-  try {
-    const dirExists = await RNFS.exists(CONFIG_DIR);
-    if (!dirExists) {
-      await RNFS.mkdir(CONFIG_DIR);
-      log('Config', 'Created config directory');
-    }
+let _saveChain = Promise.resolve(); // Serializes writes so concurrent saves can't interleave (B-025)
 
-    const encoded = obfuscateConfig(config);
-    const json = JSON.stringify(encoded, null, 2);
-    await RNFS.writeFile(CONFIG_FILE, json, 'utf8');
-    log('Config', `Saved to file (${json.length} chars, sensitive fields obfuscated)`);
-    return true;
-  } catch (e) {
-    log('Config', `File write failed: ${e.message}`);
-    return false;
-  }
+function saveToFile(config) {
+  const run = _saveChain.then(async () => {
+    try {
+      const encoded = obfuscateConfig(config);
+      const length = await writeConfigFile(encoded);
+      log('Config', `Saved to file (${length} chars, sensitive fields obfuscated)`);
+      return true;
+    } catch (e) {
+      log('Config', `File write failed: ${e.message}`);
+      return false;
+    }
+  });
+  _saveChain = run.then(() => undefined, () => undefined);
+  return run;
 }
 
 /**
  * Load config with priority: file > bundled > defaults.
  * On first launch, generates a template config file if none exists.
  */
+let _loadPromise = null; // Dedup: concurrent first loads share one file read (B-025)
+
 export async function loadConfig() {
   if (_runtimeConfig) {
     return {...DEFAULT_CONFIG, ...bundledConfig, ..._runtimeConfig};
   }
-
-  // First launch: generate template if no config file exists
-  await generateTemplate();
-
-  const fileConfig = await loadFromFile();
-  if (fileConfig) {
-    _configSource = 'file';
-    _runtimeConfig = fileConfig;
-    return {...DEFAULT_CONFIG, ...bundledConfig, ...fileConfig};
+  if (_loadPromise) {
+    return _loadPromise;
   }
 
-  if (bundledConfig.apiToken) {
-    _configSource = 'bundled';
-  }
-  return {...DEFAULT_CONFIG, ...bundledConfig};
+  _loadPromise = (async () => {
+    try {
+      // First launch: generate template if no config file exists
+      await generateTemplate();
+
+      const fileConfig = await loadFromFile();
+      if (fileConfig) {
+        _configSource = 'file';
+        _runtimeConfig = fileConfig;
+        return {...DEFAULT_CONFIG, ...bundledConfig, ...fileConfig};
+      }
+
+      if (bundledConfig.apiToken) {
+        _configSource = 'bundled';
+      }
+      return {...DEFAULT_CONFIG, ...bundledConfig};
+    } finally {
+      _loadPromise = null;
+    }
+  })();
+  return _loadPromise;
 }
 
 /**

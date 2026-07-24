@@ -54,6 +54,8 @@ function getInitialScreen(): ScreenEntry {
   }
 
   const raw = global.__superTaskButtonId;
+  (global as any).__superTaskButtonId = null; // Consume it -- a stale ID (e.g. 200 from
+  // a past lasso capture) must not route a later context re-creation to capture-lasso
   // Coerce to number for comparison -- SDK may pass string or number
   const buttonId = typeof raw === 'string' ? parseInt(raw, 10) || raw : raw;
   if (buttonId === 200) return {name: 'capture-lasso', id: 0};

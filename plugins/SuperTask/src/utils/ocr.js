@@ -23,6 +23,21 @@ function withTimeout(promise, ms, label) {
 }
 
 /**
+ * Recycle elements returned by getLassoElements()/getElements() to free
+ * native-side memory. Safe to call with anything; ignores failures.
+ * Callers own recycling -- this module never recycles the arrays it is
+ * passed, since the caller may still need the elements afterwards.
+ */
+export function recycleElements(elements) {
+  if (!Array.isArray(elements)) return;
+  try {
+    elements.forEach(el => {
+      if (el && typeof el.recycle === 'function') el.recycle();
+    });
+  } catch {}
+}
+
+/**
  * Log detailed diagnostic info about elements for debugging recognition failures.
  */
 function logElementDiagnostics(elements, label) {

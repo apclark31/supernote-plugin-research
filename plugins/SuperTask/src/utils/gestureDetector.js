@@ -17,11 +17,24 @@
  *    - 3+ fingers tap anywhere on the canvas, twice within 800ms
  *    - Opens task home with the user's default tab
  *
+ * 4. BEZEL SWIPE (F-021, config-gated, default OFF):
+ *    - 2+ fingers swipe up from the bottom edge zone (bottom 4% of canvas)
+ *    - Opens task home, same as three-finger double tap
+ *    - Parameters from design-gesture-audit.md: natural swipes take
+ *      1400-2000ms (max 3500ms), displacement 150px (80px relaxed for 3+
+ *      fingers -- 3-finger swipes read shorter). Recovery path: the
+ *      digitizer sometimes misreports a multi-finger bezel entry's DOWN
+ *      mid-page, which lands in multi-tap tracking -- onMultiTapEnd checks
+ *      displacement to reclassify those as bezel swipes.
+ *
  * Config (`lassoGestureInput`): 'off' | 'finger' | 'pen-lasso'. Controls ONLY
  * the quick-add gesture (lasso-add / pen-lasso-assist). Long press and
  * three-finger double tap are always active -- they have no false-positive
  * overlap with normal note-taking. Default is 'off': hold-then-drag looks
  * like a paused scroll, so it must be opted into.
+ * Config (`bezelSwipeEnabled`): default false. When on, DOWNs in the bottom
+ * edge zone are bezel-swipe candidates and are excluded from long-press/
+ * lasso-add (they aren't plausible link targets anyway).
  *
  * ARCHITECTURE: the onMsg callback is SDK-FREE. It only tracks coordinates,
  * timestamps, and pointer counts -- pure JS, no bridge traffic. SDK calls
@@ -75,6 +88,12 @@ const THREE_TAP_WINDOW_MS = 800; // Max time between first and second 3-finger t
 const SDK_TIMEOUT_MS = 5000;     // Max wait for SDK calls (only works while JS timers run)
 const WATCHDOG_MS = 8000;        // Event-driven force-clear of a stuck _actionInProgress
 
+// --- Bezel swipe config (F-021; parameters from design-gesture-audit.md) ---
+const BEZEL_ZONE_START = 0.96;      // Bottom 4% of canvas height is the entry zone
+const BEZEL_MIN_DISP = 150;         // Min upward travel (px) for 2 fingers
+const BEZEL_MIN_DISP_RELAXED = 80;  // Relaxed travel for 3+ fingers (they read shorter)
+const BEZEL_MAX_MS = 3500;          // Natural swipes take 1400-2000ms; 1200ms killed 13/13
+
 /** Race a promise against a timeout. Returns null if the timeout fires first.
  * NOTE: JS timers are suspended while the plugin view is closed, so this is
  * best-effort only -- the onMsg watchdog is the guaranteed recovery path. */
@@ -92,6 +111,12 @@ let _gestureMode = 'off';      // 'off', 'finger', or 'pen-lasso' -- quick-add g
 let _actionInProgress = false; // Re-entry guard for async handlers
 let _actionStartTime = 0;      // When _actionInProgress was set (watchdog deadline)
 let _actionId = 0;             // Token: stale handlers' finally{} must not clear a newer action
+
+// --- Bezel swipe state ---
+let _bezelEnabled = false;     // Config-gated (bezelSwipeEnabled), default off
+let _bezelTracking = null;     // {downY, downTime, maxPointers, minY} or null
+let _maxSeenY = 1871;          // Self-calibrating canvas height (A5X/Nomad default;
+                               // any device with a taller canvas calibrates on first touch)
 
 // --- Three-finger double tap state ---
 // Separate tracking path from long-press/lasso.
@@ -126,9 +151,9 @@ export function initGestureDetector() {
 
   log('Gesture', 'Initializing gesture detector');
 
-  // Load quick-add gesture config ('off', 'finger', 'pen-lasso')
+  // Load gesture config (quick-add mode + bezel swipe toggle)
   loadConfig().then(config => {
-    applyGestureConfig(config.lassoGestureInput);
+    applyGestureConfig(config);
   }).catch(() => {});
 
   let _eventCount = 0;
@@ -189,17 +214,37 @@ export function initGestureDetector() {
 
       const baseAction = msg.action & 0xff;
 
-      // --- Multi-tap tracking path (three-finger double tap) ---
+      // Self-calibrate canvas height from the event stream (no SDK calls)
+      if (msg.y > _maxSeenY) _maxSeenY = msg.y;
+
+      // --- Bezel swipe tracking path ---
+      if (_bezelTracking) {
+        if (baseAction === 2) {
+          if (msg.y < _bezelTracking.minY) _bezelTracking.minY = msg.y;
+        } else if (baseAction === 5) {
+          const ptrIdx = (msg.action >> 8) & 0xff;
+          _bezelTracking.maxPointers = Math.max(_bezelTracking.maxPointers, ptrIdx + 1);
+        } else if (baseAction === 1 || baseAction === 3) {
+          onBezelEnd(msg.y, baseAction === 3);
+        }
+        return;
+      }
+
+      // --- Multi-tap tracking path (three-finger double tap + bezel recovery) ---
       if (_multiTapTracking) {
         if (baseAction === 5) {
           const ptrIdx = (msg.action >> 8) & 0xff;
           _multiTapTracking.maxPointers = Math.max(_multiTapTracking.maxPointers, ptrIdx + 1);
           log('Gesture', `Multi-tap: PTR_DOWN[${ptrIdx}], maxPointers=${_multiTapTracking.maxPointers}`);
-        } else if (baseAction === 2 || baseAction === 6) {
-          // MOVE or PTR_UP -- ignore (fingers drift on e-ink, individual lifts are normal)
+        } else if (baseAction === 2) {
+          // Track upward travel for the bezel-swipe recovery path (the
+          // digitizer can misreport a bezel entry's DOWN mid-page)
+          if (msg.y < _multiTapTracking.minY) _multiTapTracking.minY = msg.y;
+        } else if (baseAction === 6) {
+          // PTR_UP -- ignore (individual finger lifts are normal)
         } else if (baseAction === 1 || baseAction === 3) {
           // UP or CANCEL -- all released, evaluate the tap
-          onMultiTapEnd();
+          onMultiTapEnd(msg.y);
         }
         return;
       }
@@ -217,8 +262,10 @@ export function initGestureDetector() {
         const ptrIdx = (msg.action >> 8) & 0xff;
         if (_fingerDown) {
           log('Gesture', `Multi-touch detected (PTR_DOWN[${ptrIdx}]) -- entering multi-tap tracking`);
+          const downY = _fingerDown.y;
+          const downTime = _fingerDown.time;
           cancelGesture();
-          _multiTapTracking = {maxPointers: ptrIdx + 1};
+          _multiTapTracking = {maxPointers: ptrIdx + 1, downY, downTime, minY: downY};
         }
       } else if (baseAction === 3) {
         cancelGesture();
@@ -246,16 +293,18 @@ export function destroyGestureDetector() {
  */
 export function reloadGestureConfig() {
   loadConfig().then(config => {
-    applyGestureConfig(config.lassoGestureInput);
+    applyGestureConfig(config);
   }).catch(() => {});
 }
 
-function applyGestureConfig(input) {
+function applyGestureConfig(config) {
+  const input = config?.lassoGestureInput;
   _gestureMode = input === 'pen-lasso' ? 'pen-lasso' : input === 'finger' ? 'finger' : 'off';
+  _bezelEnabled = config?.bezelSwipeEnabled === true;
   if (_gestureMode === 'off') {
     cancelGesture();
   }
-  log('Gesture', `Config: quick-add mode=${_gestureMode} (long press + three-finger tap always on)`);
+  log('Gesture', `Config: quick-add mode=${_gestureMode}, bezelSwipe=${_bezelEnabled ? 'on' : 'off'} (long press + three-finger tap always on)`);
 }
 
 // --- Internal handlers ---
@@ -280,6 +329,14 @@ function onFingerDown(x, y) {
   const MIXED_COOLDOWN_MS = 500;
   if (Date.now() - _mixedCancelTime < MIXED_COOLDOWN_MS) {
     log('Gesture', `DOWN suppressed: within ${MIXED_COOLDOWN_MS}ms of mixed-input cancel`);
+    return;
+  }
+
+  // Bezel swipe: a DOWN in the bottom edge zone is a swipe candidate, not a
+  // long-press/lasso start (nothing linkable lives in the bottom 4%).
+  if (_bezelEnabled && y > _maxSeenY * BEZEL_ZONE_START) {
+    _bezelTracking = {downY: y, downTime: Date.now(), maxPointers: 1, minY: y};
+    log('Gesture', `BEZEL tracking started at y=${Math.round(y)} (zone > ${Math.round(_maxSeenY * BEZEL_ZONE_START)})`);
     return;
   }
 
@@ -411,24 +468,59 @@ function resetState() {
 function cancelGesture() {
   resetState();
   _multiTapTracking = null;
+  _bezelTracking = null;
   // Note: _threeFingerTap is NOT cleared here -- it must persist across
   // gesture cycles so the second tap of a double-tap can be detected.
 }
 
+// --- Bezel swipe detection (F-021) ---
+
+function isBezelSwipe(maxPointers, downY, minY, downTime) {
+  if (!_bezelEnabled || maxPointers < 2) return false;
+  const disp = downY - minY;
+  const needed = maxPointers >= 3 ? BEZEL_MIN_DISP_RELAXED : BEZEL_MIN_DISP;
+  return disp >= needed && Date.now() - downTime <= BEZEL_MAX_MS;
+}
+
+function onBezelEnd(finalY, cancelled) {
+  const t = _bezelTracking;
+  _bezelTracking = null;
+  if (!t || cancelled) return;
+
+  const minY = Math.min(t.minY, finalY);
+  const duration = Date.now() - t.downTime;
+  if (isBezelSwipe(t.maxPointers, t.downY, minY, t.downTime)) {
+    log('Gesture', `BEZEL SWIPE DETECTED: ${t.maxPointers} fingers, ${Math.round(t.downY - minY)}px up in ${duration}ms`);
+    openTaskHome('bezel swipe');
+  } else {
+    log('Gesture', `Bezel end: ptrs=${t.maxPointers} disp=${Math.round(t.downY - minY)}px dur=${duration}ms -- not a swipe`);
+  }
+}
+
 // --- Three-finger double tap detection ---
 
-function onMultiTapEnd() {
+function onMultiTapEnd(finalY) {
   if (!_multiTapTracking) return;
 
-  const {maxPointers} = _multiTapTracking;
+  const {maxPointers, downY, downTime} = _multiTapTracking;
+  const minY = Math.min(_multiTapTracking.minY, finalY ?? _multiTapTracking.minY);
   _multiTapTracking = null;
+
+  // Bezel-swipe recovery: a multi-finger bezel entry whose DOWN was
+  // misreported mid-page lands here instead of the bezel path. Taps have
+  // near-zero travel, so real upward displacement means it was a swipe.
+  if (isBezelSwipe(maxPointers, downY, minY, downTime)) {
+    log('Gesture', `BEZEL SWIPE (recovered from multi-tap): ${maxPointers} fingers, ${Math.round(downY - minY)}px up`);
+    openTaskHome('bezel swipe (recovered)');
+    return;
+  }
 
   if (maxPointers >= 3) {
     if (_threeFingerTap && (Date.now() - _threeFingerTap.time <= THREE_TAP_WINDOW_MS)) {
       // Second 3-finger tap within window -- double tap!
       log('Gesture', `THREE-FINGER DOUBLE TAP DETECTED (${Date.now() - _threeFingerTap.time}ms between taps)`);
       _threeFingerTap = null;
-      handleThreeFingerDoubleTap();
+      openTaskHome('three-finger double tap');
     } else {
       // First 3-finger tap (or previous expired) -- record and wait
       _threeFingerTap = {time: Date.now()};
@@ -439,9 +531,10 @@ function onMultiTapEnd() {
   }
 }
 
-async function handleThreeFingerDoubleTap() {
+// Shared open-task-home action (three-finger double tap + bezel swipe)
+async function openTaskHome(trigger) {
   if (_actionInProgress) {
-    log('Gesture', 'handleThreeFingerDoubleTap: skipped, action already in progress');
+    log('Gesture', `openTaskHome(${trigger}): skipped, action already in progress`);
     return;
   }
   const aid = beginAction();
@@ -449,13 +542,13 @@ async function handleThreeFingerDoubleTap() {
   try {
     const config = await loadConfig();
     const focusTab = config.defaultTab || 'today';
-    log('Gesture', `Three-finger double tap -> tab: ${focusTab}`);
+    log('Gesture', `${trigger} -> tab: ${focusTab}`);
     // Prefetch task data while React mounts (fire-and-forget)
     fetchTaskData().catch(() => {});
     global.__superTaskDeepLink = {action: 'this-page', focusTab};
     openPluginView();
   } catch (e) {
-    log('Gesture', `handleThreeFingerDoubleTap error: ${e.message}`);
+    log('Gesture', `openTaskHome(${trigger}) error: ${e.message}`);
   } finally {
     endAction(aid);
   }

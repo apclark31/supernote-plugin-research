@@ -5,7 +5,7 @@
  * Shows on-screen diagnostics since dev server logs may not be reachable.
  */
 
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {
   View,
   Text,
@@ -18,7 +18,7 @@ import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getProjects} from '../api/todoist';
 import {log, logError} from '../utils/debug';
-import {recognizeLassoElements} from '../utils/ocr';
+import {recognizeLassoElements, recycleElements} from '../utils/ocr';
 
 type Nav = {
   push: (name: string, params?: Record<string, any>) => void;
@@ -65,6 +65,14 @@ export default function Capture({mode, nav}: Props) {
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  // Set when the user closes mid-recognition; blocks the late navigate so a
+  // hidden Capture can't reroute the stack to a stale TaskAdd.
+  const cancelledRef = useRef(false);
+
+  const handleCancel = () => {
+    cancelledRef.current = true;
+    closePlugin();
+  };
 
   const addTrace = (msg: string) => {
     const ts = new Date().toLocaleTimeString();
@@ -105,6 +113,11 @@ export default function Capture({mode, nav}: Props) {
         return;
       }
 
+      if (cancelledRef.current) {
+        addTrace('User closed during recognition -- skipping navigate');
+        return;
+      }
+
       addTrace('Navigating to TaskAdd...');
       setDone(true);
       nav.resetTo('task-add', {
@@ -125,6 +138,8 @@ export default function Capture({mode, nav}: Props) {
   const captureLasso = async (): Promise<{content: string; description: string; noteContext?: any} | null> => {
     addTrace('captureLasso: calling getLassoElements...');
 
+    // Elements hold native-side memory -- recycled in finally on every path (B-023)
+    let els: any[] | null = null;
     try {
       const elements = await withTimeout(
         PluginCommAPI.getLassoElements(),
@@ -134,10 +149,12 @@ export default function Capture({mode, nav}: Props) {
       addTrace(`getLassoElements: success=${elements?.success} count=${elements?.result?.length ?? 0}`);
 
       if (!elements?.success || !elements?.result?.length) {
+        recycleElements((elements as any)?.result);
         setError('No elements selected. Lasso some handwriting first.');
         addTrace('ERROR: no elements');
         return null;
       }
+      els = (elements as any).result;
 
       // OCR via shared utility (filters to supported types, logs diagnostics)
       const ocr = await recognizeLassoElements(elements.result, addTrace);
@@ -250,6 +267,8 @@ export default function Capture({mode, nav}: Props) {
       addTrace(`captureLasso ERROR: ${err.message}`);
       setError(`Recognition error: ${err.message}`);
       return null;
+    } finally {
+      recycleElements(els);
     }
   };
 
@@ -345,7 +364,7 @@ export default function Capture({mode, nav}: Props) {
         <Text style={styles.headerTitle}>
           {mode === 'lasso' ? 'Recognizing...' : 'Reading text...'}
         </Text>
-        <Pressable style={styles.headerBtn} onPress={() => closePlugin()}>
+        <Pressable style={styles.headerBtn} onPress={handleCancel}>
           <Text style={styles.headerBtnText}>Close</Text>
         </Pressable>
       </View>
