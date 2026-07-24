@@ -59,6 +59,30 @@
 
 **Avoid:** top/right bezel swipes (system menu/sidebar), plain 1-finger swipes always-on, any new pen+finger combo (crowded by native lasso/erase).
 
+## Design principles (post-B-028, binding for future gestures)
+
+1. **Opt-in by default.** Any gesture that incidental contact could trigger ships
+   config-gated, default OFF. The only always-on gesture is one with a geometric
+   target incidental contact cannot satisfy (long press on link bounds). The
+   three-finger double tap violated this (always-on, fires anywhere) and produced
+   the exact "device feels possessed" failure that got the plugin uninstalled.
+2. **Constraints are the feature.** A robust gesture is a stack of gates that each
+   map to a physical property of the deliberate motion: edge-zone entry, contact
+   placement bands, motion continuity (<=120px/event), duration windows, pen
+   absence. "Works anywhere" is an anti-feature on a writing surface.
+3. **Pen = writing.** Palm/hand-edge contacts reach the listener during writing
+   (1-3 "finger" contacts; the old palm-rejection-is-perfect finding is wrong).
+   Poison concurrent multi-touch AND cool down ~1.5s after any pen event --
+   palm re-plants between strokes are pen-free.
+4. **Never compute displacement across contacts.** Multi-contact MOVE streams jump
+   between contact points; a jump filter must precede any travel measurement.
+5. **Validate with real writing, not gesture drills.** Both B-028 rounds passed
+   isolated testing and failed within minutes of actual note-taking.
+
+**Status after B-028:** bezel swipe is the recommended primary opener (fully
+constrained). Three-finger double tap is supplemental, opt-in, and gets no
+further engineering -- if it misfires for opted-in users, deprecate it.
+
 ## Configurability guidance
 
 **Expose to users:** gesture on/off + action binding per gesture (schema for a

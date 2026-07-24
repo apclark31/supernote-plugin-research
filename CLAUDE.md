@@ -94,6 +94,13 @@ Key SDK source files to check:
 - Promise chain pattern (`chain = chain.then(...)`) prevents race conditions on rapid events
 - Cache page context (size, path, page number) to avoid redundant API round-trips
 
+### Gesture design principles (learned from SuperTask B-028, session 34)
+- **Any gesture that incidental contact can trigger MUST be opt-in (config-gated, default off).** Never ship an always-on gesture unless it has a geometric target that incidental contact cannot satisfy (e.g., long press on a link's bounds). The three-finger double tap shipped always-on with a "works anywhere" design and fired from palm re-plants during normal writing -- the exact failure mode that got the plugin uninstalled once before.
+- **Prefer constrained gestures over "anywhere" gestures.** Constraints (edge zones, hit tests, continuity of motion) are what make a gesture robust; each gate should map to a physical property of the deliberate gesture that incidental contact lacks.
+- **Palm contacts DO reach the motion listener during pen writing** (hand-edge registers as 1-3 finger contacts; disproved the earlier "firmware palm rejection is perfect" finding, which came from single-device, non-writing tests). Treat pen contact as proof of writing: poison concurrent multi-touch interpretation AND apply a ~1.5s cooldown after any pen event (palm re-plants between strokes are pen-free).
+- **Multi-contact MOVE streams jump between contact points** -- displacement computed across contacts is meaningless. Filter single-event jumps (>120px) before trusting travel distance.
+- **Never trust a "cannot false-positive" claim that wasn't validated during real writing sessions.** Isolated gesture tests miss the palm interplay entirely.
+
 ### E-ink UI guidelines
 - Black text on white background, no grayscale gradients
 - Large tap targets (e-ink touch is less precise than phone screens)
