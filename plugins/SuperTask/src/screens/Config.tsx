@@ -53,6 +53,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
   const [lassoGestureInput, setLassoGestureInput] = useState('off');
   const [bezelSwipeEnabled, setBezelSwipeEnabled] = useState(false);
+  const [threeFingerTapEnabled, setThreeFingerTapEnabled] = useState(false);
   const [debugServerUrl, setDebugServerUrlField] = useState('');
   const [showServerInfo, setShowServerInfo] = useState(false);
   const [pingStatus, setPingStatus] = useState('');
@@ -80,6 +81,7 @@ export default function Config({onNavigate, nav}: Props) {
         : 'finger'
       );
       if (config.bezelSwipeEnabled !== undefined) setBezelSwipeEnabled(config.bezelSwipeEnabled === true);
+      if (config.threeFingerTapEnabled !== undefined) setThreeFingerTapEnabled(config.threeFingerTapEnabled === true);
       if (config.debugServerUrl) setDebugServerUrlField(config.debugServerUrl);
 
       setConfigSource(getConfigSource());
@@ -154,6 +156,7 @@ export default function Config({onNavigate, nav}: Props) {
       markAsTextFontSize,
       lassoGestureInput,
       bezelSwipeEnabled,
+      threeFingerTapEnabled,
       debugServerUrl: debugServerUrl.trim(),
     });
     setSaving(false);
@@ -420,6 +423,11 @@ export default function Config({onNavigate, nav}: Props) {
       <Pressable style={s.radioRow} onPress={() => setBezelSwipeEnabled(!bezelSwipeEnabled)}>
         <Text style={s.checkbox}>{bezelSwipeEnabled ? '[X]' : '[  ]'}</Text>
         <Text style={s.radioLabel}>Bezel swipe: 2+ fingers up from bottom edge opens tasks</Text>
+      </Pressable>
+
+      <Pressable style={s.radioRow} onPress={() => setThreeFingerTapEnabled(!threeFingerTapEnabled)}>
+        <Text style={s.checkbox}>{threeFingerTapEnabled ? '[X]' : '[  ]'}</Text>
+        <Text style={s.radioLabel}>Three-finger double tap opens tasks (anywhere on page)</Text>
       </Pressable>
 
       <Text style={s.sectionTitle}>Mark as text font size</Text>

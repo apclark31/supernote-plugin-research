@@ -54,6 +54,10 @@ const DEFAULT_CONFIG = {
   // Bezel swipe (F-021): 2+ fingers up from the bottom edge opens task home.
   // Opt-in while it re-proves itself on-device (session 34).
   bezelSwipeEnabled: false,
+  // Three-finger double tap opens task home ANYWHERE on the canvas -- no
+  // geometric constraint, so palm activity can mimic it (B-028). Opt-in
+  // since session 34; was always-on from session 31 until B-028.
+  threeFingerTapEnabled: false,
 };
 
 // Fields that get obfuscated on disk

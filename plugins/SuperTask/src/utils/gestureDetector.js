@@ -13,9 +13,11 @@
  *    - Bounding box of movement -> programmatic lassoElements -> QuickAdd
  *    - Minimum 50x50px bbox required to avoid tiny accidental selections
  *
- * 3. THREE-FINGER DOUBLE TAP -- always active:
+ * 3. THREE-FINGER DOUBLE TAP (config-gated, default OFF since B-028):
  *    - 3+ fingers tap anywhere on the canvas, twice within 800ms
  *    - Opens task home with the user's default tab
+ *    - Works ANYWHERE (no geometric constraint) -- which is exactly why palm
+ *      clusters can mimic it and why it is opt-in
  *
  * 4. BEZEL SWIPE (F-021, config-gated, default OFF):
  *    - 2+ fingers swipe up from the bottom edge zone (bottom 4% of canvas)
@@ -36,13 +38,13 @@
  * writing, wait ~1.5s before three-finger tapping or bezel swiping.
  *
  * Config (`lassoGestureInput`): 'off' | 'finger' | 'pen-lasso'. Controls ONLY
- * the quick-add gesture (lasso-add / pen-lasso-assist). Long press and
- * three-finger double tap are always active -- they have no false-positive
- * overlap with normal note-taking. Default is 'off': hold-then-drag looks
- * like a paused scroll, so it must be opted into.
+ * the quick-add gesture (lasso-add / pen-lasso-assist). Default 'off'.
  * Config (`bezelSwipeEnabled`): default false. When on, DOWNs in the bottom
  * edge zone are bezel-swipe candidates and are excluded from long-press/
  * lasso-add (they aren't plausible link targets anyway).
+ * Config (`threeFingerTapEnabled`): default false since B-028.
+ * ONLY long press is always active: it is the one gesture with a geometric
+ * target (a link's bounds) and zero observed false positives.
  *
  * ARCHITECTURE: the onMsg callback is SDK-FREE. It only tracks coordinates,
  * timestamps, and pointer counts -- pure JS, no bridge traffic. SDK calls
@@ -133,6 +135,8 @@ let _actionId = 0;             // Token: stale handlers' finally{} must not clea
 
 // --- Bezel swipe state ---
 let _bezelEnabled = false;     // Config-gated (bezelSwipeEnabled), default off
+let _threeFingerEnabled = false; // Config-gated (threeFingerTapEnabled), default off --
+                               // it fires ANYWHERE on canvas, so it must be opted into (B-028)
 let _bezelTracking = null;     // {downY, downTime, maxPointers, minY} or null
 let _maxSeenY = 1871;          // Self-calibrating canvas height (A5X/Nomad default;
                                // any device with a taller canvas calibrates on first touch)
@@ -347,10 +351,11 @@ function applyGestureConfig(config) {
   const input = config?.lassoGestureInput;
   _gestureMode = input === 'pen-lasso' ? 'pen-lasso' : input === 'finger' ? 'finger' : 'off';
   _bezelEnabled = config?.bezelSwipeEnabled === true;
+  _threeFingerEnabled = config?.threeFingerTapEnabled === true;
   if (_gestureMode === 'off') {
     cancelGesture();
   }
-  log('Gesture', `Config: quick-add mode=${_gestureMode}, bezelSwipe=${_bezelEnabled ? 'on' : 'off'} (long press + three-finger tap always on)`);
+  log('Gesture', `Config: quick-add mode=${_gestureMode}, bezelSwipe=${_bezelEnabled ? 'on' : 'off'}, threeFingerTap=${_threeFingerEnabled ? 'on' : 'off'} (long press always on)`);
 }
 
 // --- Internal handlers ---
@@ -589,6 +594,13 @@ function onMultiTapEnd() {
   const clusterMs = startTime ? Date.now() - startTime : 0;
   if (clusterMs > TAP_MAX_MS) {
     log('Gesture', `Multi-tap end ignored: cluster lasted ${clusterMs}ms (resting hand, not a tap)`);
+    return;
+  }
+
+  if (!_threeFingerEnabled) {
+    if (maxPointers >= 3) {
+      log('Gesture', 'Three-finger tap ignored: disabled in config');
+    }
     return;
   }
 
