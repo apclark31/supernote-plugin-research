@@ -52,6 +52,16 @@ Decision: local capture is the source of truth, network is opportunistic, URL is
 3. **Portability for future plugins**: generic `template/dev-server.js` (service id `sn-plugin-dev-server`, neutral filenames), debugging section added to `template/README.md`, CLAUDE.md "Debugging on-device" rewritten around the local-first pattern. The in-plugin pieces to copy for a new plugin: `src/utils/debug.js` (needs react-native-fs for the session file) + the Debug Log Server block in `Config.tsx`.
 4. **Plugin identity in sidebar**: toolbar button 100 renamed 'Tasks' -> 'SuperTask' (the sidebar plugins list shows the button name, not PluginConfig name); new 48x48 icon -- bold checkbox with checkmark sweeping out the top-right -- replaces the default-looking puzzle piece (old icon kept as `assets/icon-puzzle-old.png`).
 
+### TaskHome v2 implemented (F-024, same session)
+
+Home screen rebuilt on the settings design language (`design-home-v2.md`):
+- `Chip` component: bordered tags for ALL row metadata + counts; overdue inverts. TaskRow uses the shared drawn Check box (glyph checkbox retired), chips wrap under the title.
+- TabBar -> inverted segmented cells; SectionHeader white + 2px rule + count chip; header slimmed to [+ New] (primary) / Settings / Close (Log/Diag removed -- Settings > Debugging has them); grays/gray separators -> black hairlines.
+- **"This Page" -> "This Note"**: whole-note scope, p.N chip per task, sorted by page (link scan + note-wide description refs with parsed page + registry). Pending-sync tasks labeled with a chip.
+- **On Device tab**: p.N now a row chip (outboard column deleted, alignment fixed); note headers filesystem-style ("Connor / 1x1") from notePath -- registry addTask now persists notePath (was silently dropped; TaskAdd now passes it too).
+- **Default tab option "On Device" added** (Settings > Opening SuperTask); deep-link focusTab now actually forwarded by App.tsx and wins over the config default (was silently ignored).
+- On-device checks: chips legible at 12px, checkbox tap target comfortable, Device rows aligned with other tabs, This Note band shows tasks from other pages with correct p.N, default-tab=On Device lands there via gesture/button open, ProjectView inherited styling looks right.
+
 ### Settings v2 implemented (F-023, same session)
 
 Full rebuild of the settings screen per `design-settings-v2.md`:

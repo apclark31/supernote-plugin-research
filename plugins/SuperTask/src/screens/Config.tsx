@@ -46,6 +46,7 @@ const TAB_OPTIONS = [
   {key: 'today', label: 'Today'},
   {key: 'upcoming', label: 'Upcoming'},
   {key: 'projects', label: 'Projects'},
+  {key: 'device', label: 'On Device'},
 ];
 
 const GESTURE_OPTIONS = [

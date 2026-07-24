@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
-import {getTasksForPage, getAllTasks as getAllRegistryTasks, removeTask} from '../utils/taskRegistry';
+import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask} from '../utils/taskRegistry';
 import {loadConfig} from '../utils/config';
 import {completeTask} from '../api/todoist';
 import {getCache, fetchTaskData, invalidateCache} from '../cache/taskCache';
@@ -22,6 +22,7 @@ import {log, logError} from '../utils/debug';
 import TabBar from '../components/TabBar';
 import TaskRow from '../components/TaskRow';
 import SectionHeader from '../components/SectionHeader';
+import Chip from '../components/Chip';
 
 type Nav = {
   push: (name: string, params?: Record<string, any>) => void;
@@ -32,39 +33,43 @@ type Nav = {
 
 type Props = {
   nav: Nav;
+  focusTab?: string; // deep-link target tab; overrides the config default
 };
 
 const TABS = [
   {key: 'today', label: 'Today'},
   {key: 'upcoming', label: 'Upcoming'},
   {key: 'projects', label: 'Projects'},
-  {key: 'device', label: 'Device'},
+  {key: 'device', label: 'On Device'},
 ];
+
+const TAB_KEYS = TABS.map(t => t.key);
 
 type ProjectMap = Record<string, string>;
 
-export default function TaskHome({nav}: Props) {
+export default function TaskHome({nav, focusTab}: Props) {
   const [tasks, setTasks] = useState<any[]>([]);
   const [projectMap, setProjectMap] = useState<ProjectMap>({});
   const [projectList, setProjectList] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState('today');
+  const [activeTab, setActiveTab] = useState(
+    focusTab && TAB_KEYS.includes(focusTab) ? focusTab : 'today',
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [pageRef, setPageRef] = useState('');
+  const [noteCtx, setNoteCtx] = useState<{fileName: string; pageNum: number} | null>(null);
   const [pageTaskIds, setPageTaskIds] = useState<string[]>([]);
-  const [registryPageTasks, setRegistryPageTasks] = useState<any[]>([]);
+  const [registryNoteTasks, setRegistryNoteTasks] = useState<any[]>([]);
   const [deviceTasks, setDeviceTasks] = useState<any[]>([]);
-  const [debugMode, setDebugMode] = useState(false);
   const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>([]);
 
   // Load default tab from config and detect current page on mount
   useEffect(() => {
     loadConfig().then(config => {
-      if (config.defaultTab) {
+      // An explicit deep-link focusTab wins over the config default
+      if (!focusTab && config.defaultTab && TAB_KEYS.includes(config.defaultTab)) {
         log('TaskHome', `Setting default tab from config: ${config.defaultTab}`);
         setActiveTab(config.defaultTab);
       }
-      if (config.debugMode) setDebugMode(true);
       if (config.enabledProjectIds?.length > 0) setEnabledProjectIds(config.enabledProjectIds);
     });
 
@@ -79,9 +84,8 @@ export default function TaskHome({nav}: Props) {
 
         const fileName = filePath.split('/').pop()?.replace('.note', '') || '';
         const noteFile = filePath.split('/').pop() || '';
-        const ref = `From: ${fileName} p.${pageNum}`;
-        setPageRef(ref);
-        log('TaskHome', `Page context: ${ref}`);
+        setNoteCtx({fileName, pageNum});
+        log('TaskHome', `Note context: ${fileName} p.${pageNum}`);
 
         // Scan page elements for supertask:// links
         try {
@@ -106,11 +110,12 @@ export default function TaskHome({nav}: Props) {
           log('TaskHome', `Element scan failed: ${e.message}`);
         }
 
-        // Read from local registry -- page tasks
+        // Read from local registry -- ALL tasks in this note (any page),
+        // so the This Note band shows where each one lives in a long note
         try {
-          const regTasks = await getTasksForPage(noteFile, pageNum);
-          setRegistryPageTasks(regTasks);
-          log('TaskHome', `Registry: ${regTasks.length} tasks for this page`);
+          const regTasks = await getTasksForNote(noteFile);
+          setRegistryNoteTasks(regTasks);
+          log('TaskHome', `Registry: ${regTasks.length} tasks in this note`);
         } catch (e: any) {
           log('TaskHome', `Registry read failed: ${e.message}`);
         }
@@ -238,55 +243,64 @@ export default function TaskHome({nav}: Props) {
 
   const today = new Date().toISOString().slice(0, 10);
 
-  // Tasks linked to the current note page.
-  // Priority: match by supertask link IDs from element scan, then fall back
-  // to description text match, then registry-only tasks (not yet in Todoist response).
-  const pageTasks = (() => {
+  // Tasks linked to the current NOTE (any page), each with the page it lives
+  // on so the band tells you where you'd jump in a long note (design-home-v2).
+  // Sources: supertask:// links scanned on the current page, description
+  // back-references (page parsed from "<fileName> p.N"), then registry
+  // entries (which carry pageNum and cover not-yet-synced tasks).
+  const noteTasks = (() => {
     const seen = new Set<string>();
-    const result: any[] = [];
+    const result: Array<{task: any; pageNum?: number}> = [];
 
-    // 1. Tasks whose IDs were found as supertask:// links on the page
-    if (pageTaskIds.length > 0) {
-      for (const id of pageTaskIds) {
-        const match = tasks.find(t => t.id === id);
-        if (match && !seen.has(match.id)) {
-          seen.add(match.id);
-          result.push(match);
-        }
+    // 1. Tasks whose IDs were found as supertask:// links on the current page
+    for (const id of pageTaskIds) {
+      const match = tasks.find(t => t.id === id);
+      if (match && !seen.has(match.id)) {
+        seen.add(match.id);
+        result.push({task: match, pageNum: noteCtx?.pageNum});
       }
     }
 
-    // 2. Tasks matched by description back-reference (backward compat)
-    if (pageRef) {
+    // 2. Tasks matched by description back-reference anywhere in this note
+    if (noteCtx?.fileName) {
+      const escaped = noteCtx.fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const refRe = new RegExp(`${escaped}(?:\\.note)? p\\.(\\d+)`);
       for (const t of tasks) {
-        if (!seen.has(t.id) && t.description && t.description.includes(pageRef)) {
+        if (seen.has(t.id) || !t.description) continue;
+        const m = t.description.match(refRe);
+        if (m) {
           seen.add(t.id);
-          result.push(t);
+          result.push({task: t, pageNum: parseInt(m[1], 10)});
         }
       }
     }
 
-    // 3. Registry-only tasks (created this session, may not be in Todoist response yet)
-    for (const rt of registryPageTasks) {
+    // 3. Registry entries for this note (carry pageNum; cover pending-sync tasks)
+    for (const rt of registryNoteTasks) {
       if (!seen.has(rt.id)) {
         seen.add(rt.id);
-        result.push({id: rt.id, content: rt.content, _registryOnly: true});
+        const full = tasks.find(t => t.id === rt.id);
+        result.push({
+          task: full || {id: rt.id, content: rt.content, _registryOnly: true},
+          pageNum: rt.pageNum,
+        });
       }
     }
 
-    return result;
+    return result.sort((a, b) => (a.pageNum ?? 0) - (b.pageNum ?? 0));
   })();
 
-  const renderThisPage = () => {
-    if (pageTasks.length === 0 || loading) return null;
+  const renderThisNote = () => {
+    if (noteTasks.length === 0 || loading) return null;
 
     return (
       <View style={styles.thisPage}>
         <View style={styles.thisPageHeader}>
-          <Text style={styles.thisPageTitle}>This Page</Text>
-          <Text style={styles.thisPageCount}>{pageTasks.length}</Text>
+          <Text style={styles.thisPageTitle}>This Note</Text>
+          <Chip label={String(noteTasks.length)} />
+          {noteCtx ? <Text style={styles.thisPageNote}>{noteCtx.fileName}</Text> : null}
         </View>
-        {pageTasks.map((task, i) => (
+        {noteTasks.map(({task, pageNum}, i) => (
           <View key={task.id}>
             {i > 0 && <View style={styles.thisPageSeparator} />}
             <TaskRow
@@ -294,6 +308,7 @@ export default function TaskHome({nav}: Props) {
               onComplete={handleComplete}
               onPress={handleTaskPress}
               showProject={projectMap[task.project_id]}
+              pageNum={pageNum}
             />
           </View>
         ))}
@@ -481,20 +496,23 @@ export default function TaskHome({nav}: Props) {
       );
     }
 
-    // Group by noteFile
-    const byNote: Record<string, any[]> = {};
+    // Group by full path when known (falls back to bare filename for older
+    // registry entries), labeled filesystem-style: "Connor / 1x1" tells you
+    // WHERE the note lives, not just its name.
+    const byNote: Record<string, {label: string; entries: any[]}> = {};
     for (const dt of deviceTasks) {
-      const key = dt.noteFile || 'Unknown';
-      if (!byNote[key]) byNote[key] = [];
-      byNote[key].push(dt);
+      const key = dt.notePath || dt.noteFile || 'Unknown';
+      if (!byNote[key]) {
+        byNote[key] = {label: noteLabel(dt.notePath, dt.noteFile), entries: []};
+      }
+      byNote[key].entries.push(dt);
     }
 
     // Build flat list with headers
     const items: any[] = [];
-    for (const [noteFile, noteTasks] of Object.entries(byNote)) {
-      const label = noteFile.replace('.note', '');
-      items.push({type: 'header', key: `h-${noteFile}`, title: label, count: noteTasks.length});
-      for (const dt of noteTasks) {
+    for (const [key, group] of Object.entries(byNote)) {
+      items.push({type: 'header', key: `h-${key}`, title: group.label, count: group.entries.length});
+      for (const dt of group.entries) {
         // Try to find the full Todoist task for richer display
         const fullTask = tasks.find(t => t.id === dt.id);
         items.push({
@@ -514,20 +532,16 @@ export default function TaskHome({nav}: Props) {
           if (item.type === 'header') {
             return <SectionHeader title={item.title} count={item.count} />;
           }
+          // Page number rides in the row's chip line -- the old outboard
+          // p.N column misaligned Device rows against every other tab.
           return (
-            <View style={styles.deviceTaskRow}>
-              <View style={styles.deviceTaskPage}>
-                <Text style={styles.deviceTaskPageText}>p.{item.pageNum}</Text>
-              </View>
-              <View style={{flex: 1}}>
-                <TaskRow
-                  task={item.task}
-                  onComplete={handleComplete}
-                  onPress={handleTaskPress}
-                  showProject={projectMap[item.task.project_id]}
-                />
-              </View>
-            </View>
+            <TaskRow
+              task={item.task}
+              onComplete={handleComplete}
+              onPress={handleTaskPress}
+              showProject={projectMap[item.task.project_id]}
+              pageNum={item.pageNum}
+            />
           );
         }}
         ItemSeparatorComponent={({leadingItem}) =>
@@ -544,22 +558,15 @@ export default function TaskHome({nav}: Props) {
       <View style={styles.header}>
         <Text style={styles.title}>SuperTask</Text>
         <View style={styles.headerButtons}>
-          <Pressable style={styles.headerButton} onPress={handleAddTask}>
-            <Text style={styles.headerButtonText}>+</Text>
+          {/* Primary action is the only inverted button. Log/Diag moved to
+              Settings > Debugging -- five identical header buttons had no
+              hierarchy (design-home-v2.md). */}
+          <Pressable style={[styles.headerButton, styles.headerButtonPrimary]} onPress={handleAddTask}>
+            <Text style={[styles.headerButtonText, styles.headerButtonPrimaryText]}>+ New</Text>
           </Pressable>
           <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'SETTINGS pressed'); nav.push('config'); }}>
             <Text style={styles.headerButtonText}>Settings</Text>
           </Pressable>
-          {debugMode && (
-            <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'LOG pressed'); nav.resetTo('debug'); }}>
-              <Text style={styles.headerButtonText}>Log</Text>
-            </Pressable>
-          )}
-          {debugMode && (
-            <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'DIAG pressed'); nav.push('diagnostics'); }}>
-              <Text style={styles.headerButtonText}>Diag</Text>
-            </Pressable>
-          )}
           <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'CLOSE pressed'); closePlugin(); }}>
             <Text style={styles.headerButtonText}>Close</Text>
           </Pressable>
@@ -568,7 +575,7 @@ export default function TaskHome({nav}: Props) {
 
       <TabBar tabs={TABS} activeTab={activeTab} onTabChange={(tab) => { log('TaskHome', `TAB changed: ${tab}`); setActiveTab(tab); }} />
 
-      {renderThisPage()}
+      {renderThisNote()}
 
       <View style={styles.body}>
         {renderContent()}
@@ -584,6 +591,20 @@ export default function TaskHome({nav}: Props) {
       </View>
     </View>
   );
+}
+
+// Filesystem-style note label: "/storage/emulated/0/Note/Connor/1x1.note"
+// -> "Connor / 1x1". Falls back to the bare filename for registry entries
+// that predate notePath storage.
+function noteLabel(notePath?: string, noteFile?: string): string {
+  if (notePath) {
+    const rel = notePath
+      .replace(/^\/storage\/emulated\/0\//, '')
+      .replace(/^(Note|Document)\//, '')
+      .replace(/\.note$/, '');
+    return rel.split('/').filter(Boolean).join(' / ');
+  }
+  return (noteFile || 'Unknown').replace('.note', '');
 }
 
 // Group tasks by project, returning interleaved header + task items
@@ -669,7 +690,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    borderBottomWidth: 1,
+    borderBottomWidth: 2,
     borderBottomColor: '#000000',
   },
   title: {
@@ -684,24 +705,31 @@ const styles = StyleSheet.create({
   headerButton: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
+    backgroundColor: '#ffffff',
   },
   headerButtonText: {
     fontSize: 14,
     fontWeight: '700',
     color: '#000000',
   },
+  headerButtonPrimary: {
+    backgroundColor: '#000000',
+  },
+  headerButtonPrimaryText: {
+    color: '#ffffff',
+  },
   thisPage: {
     borderBottomWidth: 2,
     borderBottomColor: '#000000',
-    backgroundColor: '#f8f8f8',
+    backgroundColor: '#ffffff',
   },
   thisPageHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 4,
@@ -713,15 +741,15 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
-  thisPageCount: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#666666',
+  thisPageNote: {
+    fontSize: 13,
+    color: '#555555',
+    flexShrink: 1,
   },
   thisPageSeparator: {
     height: 1,
-    backgroundColor: '#e0e0e0',
-    marginLeft: 62,
+    backgroundColor: '#000000',
+    marginLeft: 66,
   },
   body: {
     flex: 1,
@@ -748,8 +776,8 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: 1,
-    backgroundColor: '#e0e0e0',
-    marginLeft: 62,
+    backgroundColor: '#000000',
+    marginLeft: 66,
   },
   projectRow: {
     flexDirection: 'row',
@@ -776,20 +804,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#000000',
-  },
-  deviceTaskRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  deviceTaskPage: {
-    width: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  deviceTaskPageText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#666666',
   },
   footer: {
     flexDirection: 'row',

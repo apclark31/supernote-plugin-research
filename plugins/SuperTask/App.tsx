@@ -280,7 +280,7 @@ function App(): React.JSX.Element {
   return (
     <View style={[styles.container, isOverlay && styles.containerOverlay]}>
       {current.name === 'task-home' && (
-        <TaskHome key={current.id} nav={nav} />
+        <TaskHome key={current.id} nav={nav} focusTab={current.params?.focusTab} />
       )}
       {current.name === 'project-view' && (
         <ProjectView key={current.id} nav={nav} projectId={current.params?.projectId} projectName={current.params?.projectName} />

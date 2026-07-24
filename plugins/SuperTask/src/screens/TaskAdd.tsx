@@ -148,6 +148,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         await registryAddTask(task?.id, {
           content: content.trim(),
           noteFile: noteContext.filePath.split('/').pop() || '',
+          notePath: noteContext.filePath,
           pageNum: noteContext.pageNum,
         });
       }

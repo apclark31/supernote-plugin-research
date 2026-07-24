@@ -89,12 +89,15 @@ async function write(registry) {
 /**
  * Add a task to the registry after creation.
  */
-export function addTask(taskId, {content, noteFile, pageNum, completed = false}) {
+export function addTask(taskId, {content, noteFile, notePath, pageNum, completed = false}) {
   return serialize(async () => {
     const registry = await read();
     registry.tasks[taskId] = {
       content,
       noteFile,
+      // Full path enables filesystem-style labels in the On Device tab
+      // ("Connor / 1x1"). Older entries without it fall back to noteFile.
+      ...(notePath ? {notePath} : {}),
       pageNum,
       createdAt: new Date().toISOString(),
       completed,

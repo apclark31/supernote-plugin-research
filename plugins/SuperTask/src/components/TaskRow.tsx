@@ -1,10 +1,17 @@
 /**
- * TaskRow - Reusable task row with checkbox, content, priority, and due date
+ * TaskRow - task row with drawn checkbox and chip metadata (F-024).
+ *
+ * Metadata is rendered as bordered chips (the ONE idiom -- see Chip.tsx):
+ * [P1] [Jul 28] [Work] [p.4] [pending sync]. Overdue inverts. The checkbox
+ * is the shared drawn Check box (same language as the settings screen),
+ * never a text glyph.
  */
 
 import React from 'react';
 import {View, Text, Pressable, StyleSheet} from 'react-native';
 import {log} from '../utils/debug';
+import Chip from './Chip';
+import {Check} from './settings';
 
 const PRIORITY_LABELS: Record<number, string> = {
   4: 'P1',
@@ -18,48 +25,42 @@ type Props = {
   onComplete: (taskId: string) => void;
   onPress: (task: any) => void;
   showProject?: string;
+  pageNum?: number;
 };
 
-export default function TaskRow({task, onComplete, onPress, showProject}: Props) {
+export default function TaskRow({task, onComplete, onPress, showProject, pageNum}: Props) {
   const priorityLabel = PRIORITY_LABELS[task.priority] || '';
   const dueDate = task.due?.date || '';
   const today = new Date().toISOString().slice(0, 10);
   const isOverdue = dueDate && dueDate < today;
   const isToday = dueDate === today;
 
-  let dueText = '';
-  if (isToday) {
-    dueText = 'today';
-  } else if (isOverdue) {
-    dueText = `overdue (${formatDate(dueDate)})`;
-  } else if (dueDate) {
-    dueText = formatDate(dueDate);
-  }
+  const chips: Array<{label: string; inverted?: boolean}> = [];
+  if (isOverdue) chips.push({label: `Overdue ${formatDate(dueDate)}`, inverted: true});
+  else if (isToday) chips.push({label: 'Today'});
+  else if (dueDate) chips.push({label: formatDate(dueDate)});
+  if (priorityLabel) chips.push({label: priorityLabel});
+  if (showProject) chips.push({label: showProject});
+  if (pageNum !== undefined) chips.push({label: `p.${pageNum}`});
+  if (task._registryOnly) chips.push({label: 'pending sync'});
 
   return (
     <Pressable style={styles.row} onPress={() => { log('TaskRow', `ROW pressed id=${task.id}`); onPress(task); }}>
       <Pressable
-        style={styles.checkbox}
-        onPress={() => { log('TaskRow', `CHECKBOX pressed id=${task.id}`); onComplete(task.id); }}>
-        <Text style={styles.checkboxText}>○</Text>
+        style={styles.checkTarget}
+        onPress={() => { log('TaskRow', `CHECKBOX pressed id=${task.id}`); onComplete(task.id); }}
+        hitSlop={6}>
+        <Check checked={false} />
       </Pressable>
       <View style={styles.content}>
         <Text style={styles.title}>{task.content}</Text>
-        <View style={styles.meta}>
-          {priorityLabel ? (
-            <Text style={[styles.priority, task.priority === 4 && styles.priorityUrgent]}>
-              {priorityLabel}
-            </Text>
-          ) : null}
-          {dueText ? (
-            <Text style={[styles.due, isOverdue && styles.dueOverdue]}>
-              {dueText}
-            </Text>
-          ) : null}
-          {showProject ? (
-            <Text style={styles.project}>{showProject}</Text>
-          ) : null}
-        </View>
+        {chips.length > 0 && (
+          <View style={styles.meta}>
+            {chips.map((c, i) => (
+              <Chip key={i} label={c.label} inverted={c.inverted} />
+            ))}
+          </View>
+        )}
       </View>
     </Pressable>
   );
@@ -78,16 +79,13 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
   },
-  checkbox: {
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
+  checkTarget: {
+    width: 44,
+    minHeight: 44,
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    marginRight: 10,
-  },
-  checkboxText: {
-    fontSize: 22,
-    color: '#000000',
+    paddingTop: 0,
+    marginRight: 6,
   },
   content: {
     flex: 1,
@@ -99,27 +97,8 @@ const styles = StyleSheet.create({
   },
   meta: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 4,
-  },
-  priority: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#000000',
-  },
-  priorityUrgent: {
-    fontWeight: '900',
-  },
-  due: {
-    fontSize: 13,
-    color: '#666666',
-  },
-  dueOverdue: {
-    fontWeight: '700',
-    color: '#000000',
-  },
-  project: {
-    fontSize: 13,
-    color: '#999999',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
   },
 });

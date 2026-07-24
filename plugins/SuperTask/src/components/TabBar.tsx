@@ -1,5 +1,6 @@
 /**
- * TabBar - Horizontal tab strip for switching views
+ * TabBar - segmented tab strip (F-024): matches the settings design language.
+ * Selected cell inverts to black/white; no gray inactive text, no underlines.
  */
 
 import React from 'react';
@@ -20,16 +21,19 @@ type Props = {
 export default function TabBar({tabs, activeTab, onTabChange}: Props) {
   return (
     <View style={styles.container}>
-      {tabs.map(tab => (
-        <Pressable
-          key={tab.key}
-          style={[styles.tab, activeTab === tab.key && styles.tabActive]}
-          onPress={() => { log('TabBar', `TAB pressed: ${tab.key}`); onTabChange(tab.key); }}>
-          <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
-            {tab.label}
-          </Text>
-        </Pressable>
-      ))}
+      {tabs.map(tab => {
+        const active = activeTab === tab.key;
+        return (
+          <Pressable
+            key={tab.key}
+            style={[styles.tab, active && styles.tabActive]}
+            onPress={() => { log('TabBar', `TAB pressed: ${tab.key}`); onTabChange(tab.key); }}>
+            <Text style={[styles.tabText, active && styles.tabTextActive]} numberOfLines={1}>
+              {tab.label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -37,25 +41,27 @@ export default function TabBar({tabs, activeTab, onTabChange}: Props) {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
+    borderBottomWidth: 2,
     borderBottomColor: '#000000',
   },
   tab: {
     flex: 1,
     paddingVertical: 12,
     alignItems: 'center',
-    borderBottomWidth: 3,
-    borderBottomColor: 'transparent',
+    borderRightWidth: 2,
+    borderRightColor: '#000000',
+    backgroundColor: '#ffffff',
   },
   tabActive: {
-    borderBottomColor: '#000000',
+    backgroundColor: '#000000',
   },
   tabText: {
     fontSize: 15,
-    color: '#666666',
+    fontWeight: '600',
+    color: '#000000',
   },
   tabTextActive: {
     fontWeight: '700',
-    color: '#000000',
+    color: '#ffffff',
   },
 });
