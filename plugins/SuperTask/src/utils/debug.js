@@ -1,25 +1,87 @@
 /**
- * Debug logger -- collects log entries that can be displayed
- * in the plugin UI. On the Supernote there's no dev console,
- * so this is how we see what's happening.
+ * Debug logger -- local-first (F-022 phase 1).
  *
- * Export POSTs logs to a local dev server (node dev-server.js).
- * Falls back to writing a log file to MyStyle/SuperTask/logs/ via RNFS.
+ * Every entry goes to THREE places, most reliable first:
+ *   1. Rotating session file in MyStyle/SuperTask/logs/ (always on,
+ *      batched event-driven appends -- survives crashes, USB-retrievable)
+ *   2. In-memory ring buffer (2000 entries) for the in-app viewer
+ *   3. Dev server via Upload Log (opportunistic; URL is runtime-configurable
+ *      through the saved config, so an IP change never needs a rebuild)
  */
 
 import RNFS from 'react-native-fs';
 
-// Load debug server URL from bundled config
+// Debug server URL: bundled config.local is only the FALLBACK default.
+// config.js calls setDebugServerUrl() with the saved-config value on every
+// load/save, so the URL can be changed in Settings or by USB-editing
+// supertask-config.json -- no rebuild needed.
 let _debugServerUrl = '';
 try {
   const cfg = require('../../config.local');
   _debugServerUrl = (cfg.default || cfg).debugServerUrl || '';
 } catch {}
 
-const MAX_ENTRIES = 500;
+export function setDebugServerUrl(url) {
+  if (typeof url === 'string' && url.trim()) {
+    _debugServerUrl = url.trim();
+  }
+}
+
+export function getDebugServerUrl() {
+  return _debugServerUrl;
+}
+
+const MAX_ENTRIES = 2000;
 const entries = [];
 let _listener = null;
 let _debugMode = false;
+
+// --- Persistent session file (always on) ---
+const LOG_DIR = '/storage/emulated/0/MyStyle/SuperTask/logs';
+const SESSION_LOG = LOG_DIR + '/session.log';
+const SESSION_LOG_PREV = LOG_DIR + '/session.log.1';
+const FLUSH_EVERY = 25;             // entries per batched append. Event-driven --
+                                    // JS timers are suspended while the view is closed.
+const ROTATE_BYTES = 512 * 1024;    // rotate session.log -> session.log.1 (2 files kept)
+
+let _pendingFlush = [];
+let _flushedBytes = -1;             // -1 = measure existing file size on first flush
+let _fileLogBroken = false;         // one-shot kill switch: never recurse into log() on failure
+let _flushChain = Promise.resolve();
+
+/**
+ * Append pending entries to the session file. Called automatically every
+ * FLUSH_EVERY entries and from exportLog(); safe to call any time.
+ */
+export function flushToFile() {
+  if (_fileLogBroken || _pendingFlush.length === 0) return _flushChain;
+  const batch = _pendingFlush.join('\n') + '\n';
+  _pendingFlush = [];
+  _flushChain = _flushChain.then(async () => {
+    try {
+      if (_flushedBytes < 0) {
+        if (!(await RNFS.exists(LOG_DIR))) {
+          await RNFS.mkdir(LOG_DIR);
+        }
+        _flushedBytes = (await RNFS.exists(SESSION_LOG))
+          ? Number((await RNFS.stat(SESSION_LOG)).size) || 0
+          : 0;
+      }
+      if (_flushedBytes > ROTATE_BYTES) {
+        try {
+          await RNFS.unlink(SESSION_LOG_PREV);
+        } catch {}
+        await RNFS.moveFile(SESSION_LOG, SESSION_LOG_PREV);
+        _flushedBytes = 0;
+      }
+      await RNFS.appendFile(SESSION_LOG, batch, 'utf8');
+      _flushedBytes += batch.length;
+    } catch (e) {
+      _fileLogBroken = true;
+    }
+  });
+  return _flushChain;
+}
 
 export function setDebugMode(enabled) {
   _debugMode = enabled;
@@ -34,6 +96,8 @@ export function log(tag, message) {
   const entry = `[${time}] ${tag}: ${message}`;
   entries.push(entry);
   if (entries.length > MAX_ENTRIES) entries.shift();
+  _pendingFlush.push(entry);
+  if (_pendingFlush.length >= FLUSH_EVERY) flushToFile();
   if (_listener) _listener([...entries]);
 }
 
@@ -58,8 +122,10 @@ export function clearEntries() {
 }
 
 /**
- * Export debug log by POSTing to the local dev server.
- * Falls back to inserting text on the current note page.
+ * Export debug log: flush the session file, then POST to the dev server
+ * (10s abort timeout -- an unreachable server must not hang the button).
+ * On failure, write a timestamped export file. Either way the rolling
+ * session.log already has everything.
  */
 export async function exportLog() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -67,13 +133,21 @@ export async function exportLog() {
     ? `--- SuperTask Log ${timestamp} ---\n\n${entries.join('\n')}`
     : '(no log entries)';
 
-  // Method 1: POST to local dev server (always try when explicitly called)
+  // Make sure the session file is current before anything network-dependent
+  try {
+    await flushToFile();
+  } catch {}
+
+  // Method 1: POST to dev server, with timeout
   if (_debugServerUrl) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
     try {
       const resp = await fetch(_debugServerUrl, {
         method: 'POST',
         headers: {'Content-Type': 'text/plain'},
         body: logText,
+        signal: controller.signal,
       });
 
       if (resp.ok) {
@@ -82,23 +156,25 @@ export async function exportLog() {
       log('Export', `Dev server responded ${resp.status}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      log('Export', `Dev server failed: ${msg}`);
+      log('Export', `Dev server failed (${_debugServerUrl}): ${msg}`);
+    } finally {
+      clearTimeout(timer);
     }
+  } else {
+    log('Export', 'No dev server URL configured');
   }
 
-  // Method 2: Write to log file on device (retrievable via USB)
+  // Method 2: timestamped export file on device (retrievable via USB)
   try {
-    const logDir = '/storage/emulated/0/MyStyle/SuperTask/logs';
-    const dirExists = await RNFS.exists(logDir);
+    const dirExists = await RNFS.exists(LOG_DIR);
     if (!dirExists) {
-      await RNFS.mkdir(logDir);
+      await RNFS.mkdir(LOG_DIR);
     }
     const fileName = `supertask-${timestamp}.txt`;
-    const filePath = `${logDir}/${fileName}`;
-    await RNFS.writeFile(filePath, logText, 'utf8');
-    return `Log saved to MyStyle/SuperTask/logs/${fileName}`;
+    await RNFS.writeFile(`${LOG_DIR}/${fileName}`, logText, 'utf8');
+    return `Server unreachable -- saved to MyStyle/SuperTask/logs/${fileName}`;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return `Export failed: ${msg}`;
+    return `Export failed: ${msg} (rolling log: MyStyle/SuperTask/logs/session.log)`;
   }
 }

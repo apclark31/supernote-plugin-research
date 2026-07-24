@@ -18,7 +18,14 @@
  */
 
 import RNFS from 'react-native-fs';
-import {log} from './debug';
+import {log, setDebugServerUrl} from './debug';
+
+// Push derived values into consumers that can't import config (cycle-free
+// direction: config -> debug). Keeps the debug server URL runtime-editable.
+function withDerived(merged) {
+  setDebugServerUrl(merged.debugServerUrl);
+  return merged;
+}
 
 // Bundled config (build-time, gitignored)
 let bundledConfig = {};
@@ -285,7 +292,7 @@ let _loadPromise = null; // Dedup: concurrent first loads share one file read (B
 
 export async function loadConfig() {
   if (_runtimeConfig) {
-    return {...DEFAULT_CONFIG, ...bundledConfig, ..._runtimeConfig};
+    return withDerived({...DEFAULT_CONFIG, ...bundledConfig, ..._runtimeConfig});
   }
   if (_loadPromise) {
     return _loadPromise;
@@ -300,13 +307,13 @@ export async function loadConfig() {
       if (fileConfig) {
         _configSource = 'file';
         _runtimeConfig = fileConfig;
-        return {...DEFAULT_CONFIG, ...bundledConfig, ...fileConfig};
+        return withDerived({...DEFAULT_CONFIG, ...bundledConfig, ...fileConfig});
       }
 
       if (bundledConfig.apiToken) {
         _configSource = 'bundled';
       }
-      return {...DEFAULT_CONFIG, ...bundledConfig};
+      return withDerived({...DEFAULT_CONFIG, ...bundledConfig});
     } finally {
       _loadPromise = null;
     }
@@ -327,7 +334,7 @@ export function wasTemplateGenerated() {
 export async function saveConfig(config) {
   _runtimeConfig = {..._runtimeConfig, ...config};
 
-  const merged = {...DEFAULT_CONFIG, ...bundledConfig, ..._runtimeConfig};
+  const merged = withDerived({...DEFAULT_CONFIG, ...bundledConfig, ..._runtimeConfig});
   const saved = await saveToFile(merged);
   if (saved) {
     _configSource = 'file';

@@ -117,8 +117,9 @@ export default function Diagnostics({nav}: Props) {
           log('Diag', `Motion: ${line}`);
         }
 
-        // Store in module-level log (survives remount)
-        _motionLog = [line, ..._motionLog].slice(0, 200);
+        // Store in module-level log (survives remount). 1000 lines ≈ a full
+        // gesture-recording batch; raw events also reach debug.js's session file.
+        _motionLog = [line, ..._motionLog].slice(0, 1000);
 
         // Update UI only while the component is mounted
         if (_uiNotify) _uiNotify([..._motionLog]);

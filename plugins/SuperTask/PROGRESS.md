@@ -34,11 +34,22 @@ New design doc distilling gesture-research.md + design-gesture-audit.md + design
 
 `npx tsc --noEmit` has 76 pre-existing errors (build uses Metro/Babel, no type-checking). Pass 2 verified zero NEW errors against the HEAD baseline; one real latent bug found this way (missing `useEffect` import in Diagnostics).
 
+### Pass 3: local-first logging (F-022 phase 1)
+
+Decision: local capture is the source of truth, network is opportunistic, URL is runtime-configurable.
+
+1. **Always-on session file** (`debug.js`): every entry appends to `MyStyle/SuperTask/logs/session.log` in batches of 25 (event-driven -- timers suspend when view closed), rotating at 512KB to `session.log.1`. Survives crashes; retrievable over USB. One-shot kill switch if RNFS fails (never recurses into log()).
+2. **Runtime-configurable server URL**: `config.js` pushes `debugServerUrl` into debug.js on every load/save (`withDerived` -> `setDebugServerUrl`, cycle-free direction). New Settings field: Connections > Debug Log Server. USB-editing supertask-config.json also works. Bundled config.local.js is now fallback-only -- IP changes never need a rebuild again (fixes T-005 item 6).
+3. **Upload hardening**: exportLog flushes the session file first, POSTs with a 10s abort timeout, and on failure writes a timestamped export file -- the result message always says where the local copy is.
+4. **Buffers**: in-memory 500 -> 2000 entries; Diagnostics motion log 200 -> 1000 lines (a 500-entry buffer wrapped in minutes at ~25 events/sec during drags).
+5. **dev-server.js**: GET `/ping` identity endpoint (`{ok, service: 'supertask-dev-server'}`) -- manual reachability check from the device browser today, subnet-discovery probe target in F-022 phase 2. Startup message now points at the Settings field instead of config.local.
+6. `config.local.js` fallback updated to LAN IP `192.168.68.55` (was an unresolvable `.local` hostname; Mac IP has drifted .68 -> .58 -> .55 across sessions, hence the runtime-config fix).
+
 ### Builds
 
-- **`SuperTask-s34-gestures-only.snplg`** (2026-07-23 20:36) -- part 1 only, the build currently under on-device test
-- **`SuperTask.snplg`** (2026-07-24 09:16) -- stability pass 2 + bezel swipe, install this after part-1 testing
-- Reminder: `config.local.js` debugServerUrl uses `Alexs-MacBook-Pro.local` -- Android often can't resolve `.local`; use the LAN IP if logs don't arrive.
+- **`SuperTask-s34-gestures-only.snplg`** (2026-07-23 20:36) -- part 1 only; bisect fallback, not for primary testing
+- **`SuperTask.snplg`** (2026-07-24, pass 3) -- **install this one**: gesture overhaul + stability pass 2 + bezel swipe + local-first logging
+- First run: check Settings > Connections > Debug Log Server shows the right IP (dev server prints it on startup); `session.log` should appear in MyStyle/SuperTask/logs/ after ~25 log entries
 
 ### On-device test additions for pass 2
 

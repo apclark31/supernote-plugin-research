@@ -53,6 +53,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
   const [lassoGestureInput, setLassoGestureInput] = useState('off');
   const [bezelSwipeEnabled, setBezelSwipeEnabled] = useState(false);
+  const [debugServerUrl, setDebugServerUrlField] = useState('');
   const [showTokenInfo, setShowTokenInfo] = useState(false);
   const [showGestureInfo, setShowGestureInfo] = useState(false);
 
@@ -77,6 +78,7 @@ export default function Config({onNavigate, nav}: Props) {
         : 'finger'
       );
       if (config.bezelSwipeEnabled !== undefined) setBezelSwipeEnabled(config.bezelSwipeEnabled === true);
+      if (config.debugServerUrl) setDebugServerUrlField(config.debugServerUrl);
 
       setConfigSource(getConfigSource());
 
@@ -150,6 +152,7 @@ export default function Config({onNavigate, nav}: Props) {
       markAsTextFontSize,
       lassoGestureInput,
       bezelSwipeEnabled,
+      debugServerUrl: debugServerUrl.trim(),
     });
     setSaving(false);
     setSaveStatus(saved ? 'Saved to device' : 'Saved (session only)');
@@ -207,6 +210,22 @@ export default function Config({onNavigate, nav}: Props) {
         </Pressable>
         {status ? <Text style={s.statusInline}>{status}</Text> : null}
       </View>
+
+      <View style={s.separator} />
+
+      <Text style={s.sectionTitle}>Debug Log Server</Text>
+      <TextInput
+        style={s.input}
+        value={debugServerUrl}
+        onChangeText={setDebugServerUrlField}
+        placeholder="http://192.168.x.x:3000/log"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+      <Text style={s.hint}>
+        Where Upload Log sends logs (use your Mac's LAN IP, not a .local name).
+        Logs always also write to MyStyle/SuperTask/logs/session.log.
+      </Text>
 
       <View style={s.separator} />
 

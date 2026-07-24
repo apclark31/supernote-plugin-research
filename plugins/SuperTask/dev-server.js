@@ -59,9 +59,11 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && req.url === '/') {
-    res.writeHead(200, {'Content-Type': 'text/plain'});
-    res.end('SuperTask dev log server running');
+  if (req.method === 'GET' && (req.url === '/' || req.url === '/ping')) {
+    // /ping doubles as a discovery/identity endpoint: the device (or a future
+    // subnet sweep) can confirm this is the SuperTask log server.
+    res.writeHead(200, {'Content-Type': 'application/json'});
+    res.end(JSON.stringify({ok: true, service: 'supertask-dev-server', port: PORT}));
     return;
   }
 
@@ -73,7 +75,8 @@ const ip = getLocalIP();
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`\nSuperTask dev log server`);
   console.log(`Listening on http://${ip}:${PORT}`);
-  console.log(`\nAdd to config.local.js:`);
-  console.log(`  debugServerUrl: 'http://${ip}:${PORT}/log'`);
+  console.log(`\nSet in plugin Settings > Connections > Debug Log Server:`);
+  console.log(`  http://${ip}:${PORT}/log`);
+  console.log(`(or USB-edit MyStyle/SuperTask/supertask-config.json)`);
   console.log(`\nWaiting for logs...\n`);
 });
