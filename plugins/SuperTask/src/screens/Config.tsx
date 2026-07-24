@@ -62,6 +62,11 @@ const POST_CREATE_OPTIONS = [
 const FONT_SIZE_OPTIONS = [24, 28, 32, 36, 40].map(n => ({key: n, label: String(n)}));
 
 export default function Config({onNavigate, nav}: Props) {
+  // Two pages split by frequency of use: General = everyday settings
+  // (short scroll -- e-ink scrolling is imperfect); Setup = touch-once /
+  // super-user concerns (account, connection, debugging).
+  const [page, setPage] = useState<'general' | 'setup'>('general');
+
   // Account
   const [token, setToken] = useState('');
   const [tokenMasked, setTokenMasked] = useState(true);
@@ -95,7 +100,11 @@ export default function Config({onNavigate, nav}: Props) {
     log('Config', 'MOUNT -- loading saved config');
     loadConfig().then(async config => {
       log('Config', `Config loaded: hasToken=${!!config.apiToken} defaultTab=${config.defaultTab}`);
-      if (config.apiToken) setToken(config.apiToken);
+      if (config.apiToken) {
+        setToken(config.apiToken);
+      } else {
+        setPage('setup'); // first run: land on Setup so the token flow is front and center
+      }
       if (config.enabledProjectIds) setEnabledProjectIds(config.enabledProjectIds);
       if (config.defaultTab) setDefaultTab(config.defaultTab);
       if (config.defaultProjectId) setDefaultProjectId(config.defaultProjectId);
@@ -285,9 +294,24 @@ export default function Config({onNavigate, nav}: Props) {
         </View>
       </View>
 
+      {/* Page split by frequency of use (short scrolls on e-ink) */}
+      <View style={s.tabBar}>
+        <Pressable
+          style={[s.tab, page === 'general' && s.tabActive]}
+          onPress={() => setPage('general')}>
+          <Text style={[s.tabText, page === 'general' && s.tabTextActive]}>General</Text>
+        </Pressable>
+        <Pressable
+          style={[s.tab, page === 'setup' && s.tabActive]}
+          onPress={() => setPage('setup')}>
+          <Text style={[s.tabText, page === 'setup' && s.tabTextActive]}>Setup</Text>
+        </Pressable>
+      </View>
+
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
 
-        {/* ── Account & Sync ── */}
+        {/* ── Setup page: Account & Sync ── */}
+        {page === 'setup' && (
         <Section title="ACCOUNT & SYNC" first>
           <SettingRow
             label="Todoist API token"
@@ -346,9 +370,12 @@ export default function Config({onNavigate, nav}: Props) {
             </View>
           </SettingRow>
         </Section>
+        )}
 
-        {/* ── Opening SuperTask ── */}
-        <Section title="OPENING SUPERTASK">
+        {/* ── General page ── */}
+        {page === 'general' && (
+        <>
+        <Section title="OPENING SUPERTASK" first>
           <SettingRow label="Default tab" saved={savedRow === 'defaultTab'}>
             <Segmented
               options={TAB_OPTIONS}
@@ -457,8 +484,11 @@ export default function Config({onNavigate, nav}: Props) {
             </SettingRow>
           </Section>
         )}
+        </>
+        )}
 
-        {/* ── Debugging ── */}
+        {/* ── Setup page: Debugging ── */}
+        {page === 'setup' && (
         <Section title="DEBUGGING">
           <CheckRow
             checked={debugMode}
@@ -502,6 +532,7 @@ export default function Config({onNavigate, nav}: Props) {
             </SettingRow>
           )}
         </Section>
+        )}
       </ScrollView>
 
       {/* ── Info sheets (one template) ── */}
@@ -590,6 +621,31 @@ const s = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#000000',
+  },
+  tabBar: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    gap: 0,
+  },
+  tab: {
+    borderWidth: 2,
+    borderColor: '#000000',
+    paddingVertical: 10,
+    paddingHorizontal: 28,
+    marginRight: -2,
+    backgroundColor: '#ffffff',
+  },
+  tabActive: {
+    backgroundColor: '#000000',
+  },
+  tabText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  tabTextActive: {
+    color: '#ffffff',
   },
   scroll: {
     flex: 1,

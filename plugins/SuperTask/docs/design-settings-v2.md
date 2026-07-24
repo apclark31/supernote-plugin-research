@@ -100,10 +100,16 @@ Ratta-internal Android UI — unreachable from the plugin's RN tree. RN `Switch`
 animates (e-ink can't render it), has OS-controlled styling, and shades in gray.
 Drawn Views are deterministic monochrome with zero layout shift.
 
-## 4. Proposed layout — one scroll, five honest groups, no tabs
+## 4. Proposed layout — two pages split by FREQUENCY OF USE
 
-Tabs hid settings behind an arbitrary split. One scroll with strong section rules
-is easier to scan on e-ink (and matches how users hunt: by task, not by taxonomy).
+> Amended after review with Alex: e-ink scrolling is imperfect, and account/
+> debugging settings are touch-once, super-user concerns. So: two tabs in the
+> segmented visual language -- **General** (Opening SuperTask / Capturing Tasks /
+> Projects -- the everyday page, minimal scrolling) and **Setup** (Account & Sync /
+> Debugging). First run with no token lands on Setup. The original sin of the old
+> tabs was splitting by IMPLEMENTATION (Connections vs Preferences junk drawer);
+> splitting by frequency of use is honest. Sections below are unchanged, just
+> distributed across the two pages.
 
 ```
 [ Settings ]                      Saved 11:42 ✓  [Close]
