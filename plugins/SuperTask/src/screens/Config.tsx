@@ -547,7 +547,16 @@ export default function Config({onNavigate, nav}: Props) {
             <Text style={s.overlayHint}>
               The plugin can stream debug logs over wifi to a small server on your computer.
               This is optional -- logs are ALWAYS saved on the device at MyStyle/SuperTask/logs/session.log,
-              retrievable via USB.
+              retrievable via USB. That file is usually all you need for a bug report.
+            </Text>
+
+            <View style={s.overlaySeparator} />
+
+            <Text style={s.methodLabel}>Get the server file</Text>
+            <Text style={s.methodBody}>
+              dev-server.js is a single small file with no dependencies. It comes with the
+              SuperTask download (next to the .snplg) -- save it anywhere on your computer,
+              e.g. your Desktop. It writes received logs to a logs/ folder beside itself.
             </Text>
 
             <View style={s.overlaySeparator} />
@@ -556,7 +565,7 @@ export default function Config({onNavigate, nav}: Props) {
             <Text style={s.methodBody}>
               1. Install Node.js from nodejs.org (or: brew install node){'\n'}
               2. Open Terminal{'\n'}
-              3. cd into the plugin's source folder (it contains dev-server.js){'\n'}
+              3. cd into the folder where you saved dev-server.js{'\n'}
               4. Run: node dev-server.js{'\n'}
               {'\n'}
               The server prints its address, e.g. http://192.168.1.20:3000/log -- enter that in the field, tap Save, then Test.
@@ -568,7 +577,7 @@ export default function Config({onNavigate, nav}: Props) {
             <Text style={s.methodBody}>
               1. Install Node.js from nodejs.org{'\n'}
               2. Open PowerShell (or Command Prompt){'\n'}
-              3. cd into the plugin's source folder (it contains dev-server.js){'\n'}
+              3. cd into the folder where you saved dev-server.js{'\n'}
               4. Run: node dev-server.js{'\n'}
               5. If Windows Firewall asks, click Allow (private networks){'\n'}
               {'\n'}
