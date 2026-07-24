@@ -30,6 +30,10 @@
  * DO reach the listener during pen writing and look like multi-touch. Any pen
  * event cancels bezel tracking and poisons multi-tap tracking, so writing can
  * never fire taps or swipes. Real taps/swipes never involve pen contact.
+ * Palm re-plants BETWEEN strokes are pen-free, so poisoning alone is not
+ * enough: no tap or swipe may fire within PEN_COOLDOWN_MS (1.5s) of any pen
+ * event, and a tap cluster must be crisp (<= TAP_MAX_MS). Consequence: after
+ * writing, wait ~1.5s before three-finger tapping or bezel swiping.
  *
  * Config (`lassoGestureInput`): 'off' | 'finger' | 'pen-lasso'. Controls ONLY
  * the quick-add gesture (lasso-add / pen-lasso-assist). Long press and
@@ -89,6 +93,10 @@ const HIT_PADDING_PX = 30;    // Extra padding around link bounds for hit test
 
 // --- Three-finger double tap config ---
 const THREE_TAP_WINDOW_MS = 800; // Max time between first and second 3-finger tap
+const PEN_COOLDOWN_MS = 1500;    // B-028: palm re-plants between strokes are pen-FREE
+                                 // clusters -- poisoning misses them. No tap/swipe may
+                                 // fire within this window of any pen activity.
+const TAP_MAX_MS = 600;          // A tap cluster is crisp; longer = a resting palm
 const SDK_TIMEOUT_MS = 5000;     // Max wait for SDK calls (only works while JS timers run)
 const WATCHDOG_MS = 8000;        // Event-driven force-clear of a stuck _actionInProgress
 
@@ -132,8 +140,9 @@ let _maxSeenY = 1871;          // Self-calibrating canvas height (A5X/Nomad defa
 // --- Three-finger double tap state ---
 // Separate tracking path from long-press/lasso.
 // Entered when PTR_DOWN (multi-touch) is detected during a standard gesture.
-let _multiTapTracking = null;  // {maxPointers} or null -- active multi-tap sequence
+let _multiTapTracking = null;  // {maxPointers, penSeen, startTime} or null
 let _threeFingerTap = null;    // {time} or null -- records first 3-finger tap, awaiting second
+let _lastPenTime = 0;          // Last pen event -- gates taps/swipes near writing (B-028)
 
 /** Mark an async action as started. Returns a token for endAction(). */
 function beginAction() {
@@ -191,6 +200,7 @@ export function initGestureDetector() {
         // contacts do reach the listener during writing (confirmed on-device
         // 2026-07-24, B-028) and look like multi-touch -- poison any bezel or
         // multi-tap tracking so palm+pen can never open the plugin.
+        _lastPenTime = Date.now();
         if (_bezelTracking) {
           log('Gesture', 'PEN during bezel tracking -- cancelled (writing, not swiping)');
           _bezelTracking = null;
@@ -299,8 +309,9 @@ export function initGestureDetector() {
           // two-finger+pen lasso), carry the poison into multi-tap tracking
           // rather than starting it clean. _mixedInput is pen-set in all modes.
           const penActive = _mixedInput;
+          const startTime = _fingerDown.time;
           cancelGesture();
-          _multiTapTracking = {maxPointers: ptrIdx + 1, penSeen: penActive};
+          _multiTapTracking = {maxPointers: ptrIdx + 1, penSeen: penActive, startTime};
         }
       } else if (baseAction === 3) {
         cancelGesture();
@@ -522,6 +533,14 @@ function onBezelEnd(finalY, cancelled) {
   _bezelTracking = null;
   if (!t || cancelled) return;
 
+  // Pen cooldown (B-028): a bezel swipe within 1.5s of pen activity is a
+  // hand shuffle around writing, not a deliberate open.
+  const sincePen = Date.now() - _lastPenTime;
+  if (sincePen < PEN_COOLDOWN_MS) {
+    log('Gesture', `Bezel end ignored: pen active ${sincePen}ms ago (writing)`);
+    return;
+  }
+
   // Same continuity filter as MOVE: an UP that jumps far from the last
   // tracked position is a contact switch, not swipe travel.
   const minY = Math.abs(finalY - t.lastY) <= BEZEL_MAX_STEP
@@ -541,7 +560,7 @@ function onBezelEnd(finalY, cancelled) {
 function onMultiTapEnd() {
   if (!_multiTapTracking) return;
 
-  const {maxPointers, penSeen} = _multiTapTracking;
+  const {maxPointers, penSeen, startTime} = _multiTapTracking;
   _multiTapTracking = null;
 
   // Pen was active during this touch cluster: the user was writing (palm +
@@ -555,6 +574,21 @@ function onMultiTapEnd() {
   // confirmed working on-device) is the only trigger.
   if (penSeen) {
     log('Gesture', `Multi-tap end ignored: pen active during touch (writing)`);
+    return;
+  }
+
+  // Palm re-plants BETWEEN strokes are pen-free clusters that poisoning
+  // can't see (on-device 2026-07-24, second B-028 log): two palm plants
+  // within 800ms fired a false three-finger double tap mid-page. Real taps
+  // don't happen within a beat of writing, and they're crisp -- gate on both.
+  const sincePen = Date.now() - _lastPenTime;
+  if (sincePen < PEN_COOLDOWN_MS) {
+    log('Gesture', `Multi-tap end ignored: pen active ${sincePen}ms ago (palm re-plant between strokes)`);
+    return;
+  }
+  const clusterMs = startTime ? Date.now() - startTime : 0;
+  if (clusterMs > TAP_MAX_MS) {
+    log('Gesture', `Multi-tap end ignored: cluster lasted ${clusterMs}ms (resting hand, not a tap)`);
     return;
   }
 
