@@ -97,6 +97,13 @@ const BEZEL_ZONE_START = 0.96;      // Bottom 4% of canvas height is the entry z
 const BEZEL_MIN_DISP = 150;         // Min upward travel (px) for 2 fingers
 const BEZEL_MIN_DISP_RELAXED = 80;  // Relaxed travel for 3+ fingers (they read shorter)
 const BEZEL_MAX_MS = 3500;          // Natural swipes take 1400-2000ms; 1200ms killed 13/13
+// --- B-028 palm discrimination ---
+const BEZEL_PTR_BAND = 0.60;        // Additional fingers must land in the bottom 40%
+                                    // (generous: fingers register staggered 50-150ms,
+                                    // a late finger may already be mid-swipe)
+const BEZEL_MAX_STEP = 120;         // Max px between consecutive MOVEs that counts as
+                                    // motion; bigger = stream switching between contact
+                                    // points (palm + finger), ignored for displacement
 
 /** Race a promise against a timeout. Returns null if the timeout fires first.
  * NOTE: JS timers are suspended while the plugin view is closed, so this is
@@ -236,10 +243,24 @@ export function initGestureDetector() {
       // --- Bezel swipe tracking path ---
       if (_bezelTracking) {
         if (baseAction === 2) {
-          if (msg.y < _bezelTracking.minY) _bezelTracking.minY = msg.y;
+          // Continuity filter (B-028): a real swipe advances ~60-80px between
+          // MOVE events. A bigger jump is the stream switching between contact
+          // points, not motion -- track it but never count it as displacement.
+          if (Math.abs(msg.y - _bezelTracking.lastY) <= BEZEL_MAX_STEP) {
+            if (msg.y < _bezelTracking.minY) _bezelTracking.minY = msg.y;
+          }
+          _bezelTracking.lastY = msg.y;
         } else if (baseAction === 5) {
           const ptrIdx = (msg.action >> 8) & 0xff;
-          _bezelTracking.maxPointers = Math.max(_bezelTracking.maxPointers, ptrIdx + 1);
+          // Spatial gate (B-028): all fingers of a real bezel swipe start near
+          // the bottom edge. A new contact far above the band is palm+finger.
+          if (msg.y < _maxSeenY * BEZEL_PTR_BAND) {
+            log('Gesture', `Bezel cancelled: PTR_DOWN[${ptrIdx}] at y=${Math.round(msg.y)} above bottom band`);
+            _bezelTracking = null;
+          } else {
+            _bezelTracking.maxPointers = Math.max(_bezelTracking.maxPointers, ptrIdx + 1);
+            _bezelTracking.lastY = msg.y;
+          }
         } else if (baseAction === 1 || baseAction === 3) {
           onBezelEnd(msg.y, baseAction === 3);
         }
@@ -349,7 +370,7 @@ function onFingerDown(x, y) {
   // Bezel swipe: a DOWN in the bottom edge zone is a swipe candidate, not a
   // long-press/lasso start (nothing linkable lives in the bottom 4%).
   if (_bezelEnabled && y > _maxSeenY * BEZEL_ZONE_START) {
-    _bezelTracking = {downY: y, downTime: Date.now(), maxPointers: 1, minY: y};
+    _bezelTracking = {downY: y, downTime: Date.now(), maxPointers: 1, minY: y, lastY: y};
     log('Gesture', `BEZEL tracking started at y=${Math.round(y)} (zone > ${Math.round(_maxSeenY * BEZEL_ZONE_START)})`);
     return;
   }
@@ -501,7 +522,11 @@ function onBezelEnd(finalY, cancelled) {
   _bezelTracking = null;
   if (!t || cancelled) return;
 
-  const minY = Math.min(t.minY, finalY);
+  // Same continuity filter as MOVE: an UP that jumps far from the last
+  // tracked position is a contact switch, not swipe travel.
+  const minY = Math.abs(finalY - t.lastY) <= BEZEL_MAX_STEP
+    ? Math.min(t.minY, finalY)
+    : t.minY;
   const duration = Date.now() - t.downTime;
   if (isBezelSwipe(t.maxPointers, t.downY, minY, t.downTime)) {
     log('Gesture', `BEZEL SWIPE DETECTED: ${t.maxPointers} fingers, ${Math.round(t.downY - minY)}px up in ${duration}ms`);
