@@ -44,7 +44,6 @@ const DEFAULT_CONFIG = {
   enabledProjectIds: [],
   defaultTab: 'today',
   postCreateAction: 'prompt',
-  defaultScreen: 'task-home',
   debugMode: false,
   markAsTextFontSize: 32,
   // 'off', 'finger', or 'pen-lasso'. Controls the quick-add lasso gesture only;

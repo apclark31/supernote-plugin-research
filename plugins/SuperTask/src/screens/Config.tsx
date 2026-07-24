@@ -1,13 +1,17 @@
 /**
- * Config screen - Compact e-ink layout
+ * Config screen -- Settings v2 (F-023, design-settings-v2.md)
  *
- * Two tabs: Connections (API token, config source) and Preferences
- * (all settings use horizontal controls for space efficiency).
+ * One scroll, five honest groups, built exclusively on the settings
+ * primitives (Section / SettingRow / Segmented / Check / InfoSheet).
  *
- * Config persistence: reads/writes config via RNFS JSON file (react-native-fs).
+ * Persistence model: APPLY ON CHANGE. Every control persists immediately
+ * (saveConfig is serialized + atomic per B-025); the changed row shows a
+ * "Saved ✓" chip and the header carries the last save result, including
+ * an explicit failure state. Only the API token and the log server URL
+ * (typed text) use deliberate commit points (Save button / end-editing).
  */
 
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {
   View,
   Text,
@@ -17,12 +21,21 @@ import {
   ScrollView,
   Clipboard,
 } from 'react-native';
-import {PluginManager} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
-import {loadConfig, saveConfig, getConfigSource, reloadConfig, wasTemplateGenerated} from '../utils/config';
+import {loadConfig, saveConfig, getConfigSource, wasTemplateGenerated} from '../utils/config';
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
 import {reloadGestureConfig} from '../utils/gestureDetector';
+import {
+  Section,
+  SettingRow,
+  Segmented,
+  CheckRow,
+  CheckItem,
+  InfoButton,
+  InfoSheet,
+  SavedTick,
+} from '../components/settings';
 
 type Props = {
   onNavigate: (screen: string) => void;
@@ -35,44 +48,58 @@ const TAB_OPTIONS = [
   {key: 'projects', label: 'Projects'},
 ];
 
+const GESTURE_OPTIONS = [
+  {key: 'off', label: 'Off'},
+  {key: 'finger', label: 'Finger lasso'},
+  {key: 'pen-lasso', label: 'Pen lasso'},
+];
+
+const POST_CREATE_OPTIONS = [
+  {key: 'prompt', label: 'Ask (Add / Done)'},
+  {key: 'auto-back', label: 'Go back'},
+];
+
+const FONT_SIZE_OPTIONS = [24, 28, 32, 36, 40].map(n => ({key: n, label: String(n)}));
+
 export default function Config({onNavigate, nav}: Props) {
-  const [activeTab, setActiveTab] = useState('connections');
+  // Account
   const [token, setToken] = useState('');
   const [tokenMasked, setTokenMasked] = useState(true);
   const [status, setStatus] = useState('');
   const [configSource, setConfigSource] = useState('defaults');
-  const [saving, setSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState('');
   const [projects, setProjects] = useState<any[]>([]);
-  const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>([]);
+
+  // Settings values
   const [defaultTab, setDefaultTab] = useState('today');
-  const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null);
-  const [postCreateAction, setPostCreateAction] = useState('prompt');
-  const [defaultScreen, setDefaultScreen] = useState('task-home');
-  const [debugMode, setDebugMode] = useState(false);
-  const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
-  const [lassoGestureInput, setLassoGestureInput] = useState('off');
   const [bezelSwipeEnabled, setBezelSwipeEnabled] = useState(false);
   const [threeFingerTapEnabled, setThreeFingerTapEnabled] = useState(false);
+  const [lassoGestureInput, setLassoGestureInput] = useState('off');
+  const [postCreateAction, setPostCreateAction] = useState('prompt');
+  const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
+  const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>([]);
+  const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null);
+  const [debugMode, setDebugMode] = useState(false);
   const [debugServerUrl, setDebugServerUrlField] = useState('');
-  const [showServerInfo, setShowServerInfo] = useState(false);
+
+  // Apply-on-change feedback
+  const [savedRow, setSavedRow] = useState<string | null>(null);
+  const [lastSaved, setLastSaved] = useState('');
+  const [saveFailed, setSaveFailed] = useState(false);
+  const savedTimer = useRef<any>(null);
+
+  // Info sheets + transient statuses
+  const [infoSheet, setInfoSheet] = useState<'token' | 'gesture' | 'server' | null>(null);
   const [pingStatus, setPingStatus] = useState('');
-  const [showTokenInfo, setShowTokenInfo] = useState(false);
-  const [showGestureInfo, setShowGestureInfo] = useState(false);
 
   useEffect(() => {
     log('Config', 'MOUNT -- loading saved config');
     loadConfig().then(async config => {
       log('Config', `Config loaded: hasToken=${!!config.apiToken} defaultTab=${config.defaultTab}`);
-      if (config.apiToken) {
-        setToken(config.apiToken);
-        setActiveTab('preferences');
-      }
+      if (config.apiToken) setToken(config.apiToken);
       if (config.enabledProjectIds) setEnabledProjectIds(config.enabledProjectIds);
       if (config.defaultTab) setDefaultTab(config.defaultTab);
       if (config.defaultProjectId) setDefaultProjectId(config.defaultProjectId);
       if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
-      if (config.defaultScreen) setDefaultScreen(config.defaultScreen);
       if (config.debugMode !== undefined) setDebugMode(config.debugMode);
       if (config.markAsTextFontSize) setMarkAsTextFontSize(config.markAsTextFontSize);
       if (config.lassoGestureInput) setLassoGestureInput(
@@ -80,8 +107,8 @@ export default function Config({onNavigate, nav}: Props) {
         : config.lassoGestureInput === 'pen-lasso' ? 'pen-lasso'
         : 'finger'
       );
-      if (config.bezelSwipeEnabled !== undefined) setBezelSwipeEnabled(config.bezelSwipeEnabled === true);
-      if (config.threeFingerTapEnabled !== undefined) setThreeFingerTapEnabled(config.threeFingerTapEnabled === true);
+      setBezelSwipeEnabled(config.bezelSwipeEnabled === true);
+      setThreeFingerTapEnabled(config.threeFingerTapEnabled === true);
       if (config.debugServerUrl) setDebugServerUrlField(config.debugServerUrl);
 
       setConfigSource(getConfigSource());
@@ -98,7 +125,29 @@ export default function Config({onNavigate, nav}: Props) {
         }
       }
     });
+    return () => {
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+    };
   }, []);
+
+  /**
+   * Apply-on-change core: persist one change, mark the row saved, update
+   * the header status (including the write-failure state), and hot-reload
+   * the gesture detector when a gesture key changed.
+   */
+  const applyChange = async (rowKey: string, partial: Record<string, any>, gesture = false) => {
+    const ok = await saveConfig(partial);
+    setConfigSource(getConfigSource());
+    setLastSaved(new Date().toLocaleTimeString());
+    setSaveFailed(!ok);
+    setSavedRow(rowKey);
+    if (savedTimer.current) clearTimeout(savedTimer.current);
+    savedTimer.current = setTimeout(() => setSavedRow(null), 2000);
+    if (gesture) reloadGestureConfig();
+    log('Config', `Applied ${Object.keys(partial).join(',')}${ok ? '' : ' (SESSION ONLY -- write failed)'}`);
+  };
+
+  // ── Account handlers ─────────────────────────────────────
 
   const handlePaste = async () => {
     try {
@@ -114,21 +163,22 @@ export default function Config({onNavigate, nav}: Props) {
     }
   };
 
+  const handleSaveToken = () => {
+    applyChange('token', {apiToken: token.trim()});
+  };
+
   const handleTestConnection = async () => {
     const t = token.trim();
     if (!t) {
       setStatus('Enter an API token first');
       return;
     }
-
     setStatus('Testing...');
     setConfigLoader(() => Promise.resolve({apiToken: t}));
-
     try {
       const result = await testConnection();
-      setStatus(`Connected! ${result.taskCount} tasks, ${result.projectCount} projects`);
+      setStatus(`Connected: ${result.taskCount} tasks, ${result.projectCount} projects`);
       log('Config', `Connected: ${result.taskCount} tasks, ${result.projectCount} projects`);
-
       const fetchedProjects = await getProjects();
       setProjects(fetchedProjects || []);
     } catch (err: any) {
@@ -136,39 +186,25 @@ export default function Config({onNavigate, nav}: Props) {
     }
   };
 
+  // ── Projects handlers ────────────────────────────────────
+
   const toggleProject = (projectId: string) => {
-    setEnabledProjectIds(prev =>
-      prev.includes(projectId) ? prev.filter(id => id !== projectId) : [...prev, projectId],
-    );
+    const next = enabledProjectIds.includes(projectId)
+      ? enabledProjectIds.filter(id => id !== projectId)
+      : [...enabledProjectIds, projectId];
+    setEnabledProjectIds(next);
+    applyChange('showProjects', {enabledProjectIds: next});
   };
 
-  const handleSave = async () => {
-    log('Config', 'SAVE pressed');
-    setSaving(true);
-    const saved = await saveConfig({
-      apiToken: token.trim(),
-      enabledProjectIds,
-      defaultTab,
-      defaultProjectId,
-      postCreateAction,
-      defaultScreen,
-      debugMode,
-      markAsTextFontSize,
-      lassoGestureInput,
-      bezelSwipeEnabled,
-      threeFingerTapEnabled,
-      debugServerUrl: debugServerUrl.trim(),
-    });
-    setSaving(false);
-    setSaveStatus(saved ? 'Saved to device' : 'Saved (session only)');
-    setConfigSource(getConfigSource());
-    reloadGestureConfig();
-    setTimeout(() => setSaveStatus(''), 2000);
+  // ── Debug server handlers ────────────────────────────────
+
+  const commitServerUrl = () => {
+    applyChange('server', {debugServerUrl: debugServerUrl.trim()});
   };
 
-  // Ping the dev server. Tests the FIELD value (pre-save) so a typo is caught
-  // before committing it to config. Tries /ping (identity endpoint); falls
-  // back to GET / for older dev-server builds without /ping.
+  // Ping the dev server. Tests the FIELD value (pre-save) so a typo is
+  // caught before committing. Tries /ping; falls back to GET / for older
+  // dev-server builds.
   const handleTestServer = async () => {
     const url = debugServerUrl.trim();
     if (!url) {
@@ -197,7 +233,6 @@ export default function Config({onNavigate, nav}: Props) {
         log('Config', 'Server ping: OK');
         return;
       }
-      // Older dev-server without /ping returns 404 there but 200 on /
       const rootResp = await tryFetch(base + '/');
       if (rootResp.ok) {
         setPingStatus('Server reachable (older dev-server.js -- restart it to get /ping)');
@@ -213,266 +248,31 @@ export default function Config({onNavigate, nav}: Props) {
     }
   };
 
-  const sourceLabel = (s: string) => {
-    switch (s) {
+  const sourceLabel = (src: string) => {
+    switch (src) {
       case 'file': return 'Device file';
       case 'bundled': return 'Build config';
       default: return 'Not saved';
     }
   };
 
-  // ── Connections Tab ──────────────────────────────────────
-  const renderConnectionsTab = () => (
-    <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
-      <View style={s.inlineRow}>
-        <Text style={s.sectionTitle}>Todoist API Token</Text>
-        <Pressable style={s.infoBtn} onPress={() => setShowTokenInfo(true)}>
-          <Text style={s.infoBtnText}>?</Text>
-        </Pressable>
-      </View>
-      <View style={s.tokenRow}>
-        <TextInput
-          style={[s.input, {flex: 1}]}
-          value={token}
-          onChangeText={setToken}
-          placeholder="Paste your API token"
-          secureTextEntry={tokenMasked}
-        />
-        <Pressable style={s.btnSmall} onPress={handlePaste}>
-          <Text style={s.btnSmallText}>Paste</Text>
-        </Pressable>
-        <Pressable style={s.btnSmall} onPress={() => setTokenMasked(!tokenMasked)}>
-          <Text style={s.btnSmallText}>{tokenMasked ? 'Show' : 'Hide'}</Text>
-        </Pressable>
-      </View>
-      <Text style={s.hint}>todoist.com/prefs/integrations &gt; API token</Text>
+  const projectOptions = [
+    {key: null as string | null, label: 'None'},
+    ...projects.map(p => ({key: p.id as string | null, label: p.name as string})),
+  ];
 
-      {!token && wasTemplateGenerated() && (
-        <View style={s.setupNotice}>
-          <Text style={s.setupNoticeText}>
-            Config file created at MyStyle/SuperTask/supertask-config.json.
-            Connect via USB to add your token, or tap ? above for all options.
-          </Text>
-        </View>
-      )}
+  // ── Render ───────────────────────────────────────────────
 
-      <View style={s.inlineRow}>
-        <Pressable style={s.btnAction} onPress={handleTestConnection}>
-          <Text style={s.btnActionText}>Test Connection</Text>
-        </Pressable>
-        {status ? <Text style={s.statusInline}>{status}</Text> : null}
-      </View>
-
-      <View style={s.separator} />
-
-      <View style={s.inlineRow}>
-        <Text style={s.sectionTitle}>Debug Log Server</Text>
-        <Pressable style={s.infoBtn} onPress={() => setShowServerInfo(true)}>
-          <Text style={s.infoBtnText}>?</Text>
-        </Pressable>
-      </View>
-      <View style={s.tokenRow}>
-        <TextInput
-          style={[s.input, {flex: 1}]}
-          value={debugServerUrl}
-          onChangeText={setDebugServerUrlField}
-          placeholder="http://192.168.x.x:3000/log"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <Pressable style={s.btnSmall} onPress={handleTestServer}>
-          <Text style={s.btnSmallText}>Test</Text>
-        </Pressable>
-      </View>
-      {pingStatus ? <Text style={s.hint}>  {pingStatus}</Text> : null}
-      <Text style={s.hint}>
-        Where Upload Log sends logs (computer's LAN IP, not a .local name). Tap ? for
-        setup. Logs always also write to MyStyle/SuperTask/logs/session.log.
-      </Text>
-
-      <View style={s.separator} />
-
-      <Text style={s.sectionTitle}>Config Source</Text>
-      <View style={s.inlineRow}>
-        <View style={s.sourceChip}>
-          <Text style={s.sourceChipText}>{sourceLabel(configSource)}</Text>
-        </View>
-        <Text style={s.hint}>
-          {configSource === 'file'
-            ? 'MyStyle/SuperTask/supertask-config.json'
-            : configSource === 'bundled'
-            ? 'Using build-time config.local.js'
-            : 'No persistent config found'}
-        </Text>
-      </View>
-    </ScrollView>
-  );
-
-  // ── Preferences Tab ──────────────────────────────────────
-  const renderPreferencesTab = () => (
-    <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
-      {/* ── General ── */}
-      <Text style={s.groupTitle}>General</Text>
-
-      <Text style={s.sectionTitle}>Default tab</Text>
-      <View style={s.toggleRow}>
-        {TAB_OPTIONS.map(opt => (
-          <Pressable
-            key={opt.key}
-            style={[s.toggleBtn, defaultTab === opt.key && s.toggleBtnActive]}
-            onPress={() => setDefaultTab(opt.key)}>
-            <Text style={[s.toggleText, defaultTab === opt.key && s.toggleTextActive]}>
-              {opt.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <Text style={s.sectionTitle}>After creating a task</Text>
-      <View style={s.inlineRow}>
-        <Pressable style={s.radioRow} onPress={() => setPostCreateAction('prompt')}>
-          <Text style={s.radio}>{postCreateAction === 'prompt' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Ask (Add/Done)</Text>
-        </Pressable>
-        <Pressable style={s.radioRow} onPress={() => setPostCreateAction('auto-back')}>
-          <Text style={s.radio}>{postCreateAction === 'auto-back' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Go back</Text>
-        </Pressable>
-      </View>
-
-      <Text style={s.sectionTitle}>Open plugin to</Text>
-      <View style={s.inlineRow}>
-        <Pressable style={s.radioRow} onPress={() => setDefaultScreen('task-home')}>
-          <Text style={s.radio}>{defaultScreen === 'task-home' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Task Home</Text>
-        </Pressable>
-        <Pressable style={s.radioRow} onPress={() => setDefaultScreen('last-used')}>
-          <Text style={s.radio}>{defaultScreen === 'last-used' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Last Used</Text>
-        </Pressable>
-      </View>
-
-      {/* ── Projects ── */}
-      {projects.length > 0 && (
-        <>
-          <View style={s.separator} />
-          <Text style={s.groupTitle}>Projects</Text>
-
-          <Text style={s.sectionTitle}>
-            Show projects  <Text style={s.hint}>Select which to show</Text>
-          </Text>
-          <View style={s.checkGrid}>
-            {projects.map(p => {
-              const enabled = enabledProjectIds.includes(p.id);
-              return (
-                <Pressable key={p.id} style={s.checkItem} onPress={() => toggleProject(p.id)}>
-                  <Text style={s.checkbox}>{enabled ? '[X]' : '[  ]'}</Text>
-                  <Text style={s.checkLabel} numberOfLines={1}>{p.name}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Text style={s.sectionTitle}>Default project for new tasks</Text>
-          <View style={s.buttonGrid}>
-            <Pressable
-              style={[s.gridBtn, !defaultProjectId && s.gridBtnActive]}
-              onPress={() => setDefaultProjectId(null)}>
-              <Text style={[s.gridBtnText, !defaultProjectId && s.gridBtnTextActive]}>None</Text>
-            </Pressable>
-            {projects.map(p => (
-              <Pressable
-                key={p.id}
-                style={[s.gridBtn, defaultProjectId === p.id && s.gridBtnActive]}
-                onPress={() => setDefaultProjectId(p.id)}>
-                <Text style={[s.gridBtnText, defaultProjectId === p.id && s.gridBtnTextActive]}>
-                  {p.name}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </>
-      )}
-
-      {/* ── Handwriting ── */}
-      <View style={s.separator} />
-      <Text style={s.groupTitle}>Handwriting</Text>
-
-      <View style={s.inlineRow}>
-        <Text style={s.sectionTitle}>Quick Add Gesture</Text>
-        <Pressable style={s.infoBtn} onPress={() => setShowGestureInfo(true)}>
-          <Text style={s.infoBtnText}>i</Text>
-        </Pressable>
-      </View>
-      <View style={s.inlineRow}>
-        <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('off')}>
-          <Text style={s.radio}>{lassoGestureInput === 'off' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Off</Text>
-        </Pressable>
-        <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('finger')}>
-          <Text style={s.radio}>{lassoGestureInput === 'finger' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Finger lasso</Text>
-        </Pressable>
-        <Pressable style={s.radioRow} onPress={() => setLassoGestureInput('pen-lasso')}>
-          <Text style={s.radio}>{lassoGestureInput === 'pen-lasso' ? '(*)' : '( )'}</Text>
-          <Text style={s.radioLabel}>Pen lasso</Text>
-        </Pressable>
-      </View>
-      <Text style={s.hint}>  Long press on a linked task always works (any mode)</Text>
-
-      <Pressable style={s.radioRow} onPress={() => setBezelSwipeEnabled(!bezelSwipeEnabled)}>
-        <Text style={s.checkbox}>{bezelSwipeEnabled ? '[X]' : '[  ]'}</Text>
-        <Text style={s.radioLabel}>Bezel swipe: 2+ fingers up from bottom edge opens tasks</Text>
-      </Pressable>
-
-      <Pressable style={s.radioRow} onPress={() => setThreeFingerTapEnabled(!threeFingerTapEnabled)}>
-        <Text style={s.checkbox}>{threeFingerTapEnabled ? '[X]' : '[  ]'}</Text>
-        <Text style={s.radioLabel}>Three-finger double tap opens tasks (anywhere on page)</Text>
-      </Pressable>
-
-      <Text style={s.sectionTitle}>Mark as text font size</Text>
-      <View style={s.inlineRow}>
-        <Text style={s.sizeLabel}>Size:</Text>
-        {[24, 28, 32, 36, 40].map(size => (
-          <Pressable
-            key={size}
-            style={[s.sizeBtn, markAsTextFontSize === size && s.sizeBtnActive]}
-            onPress={() => setMarkAsTextFontSize(size)}>
-            <Text style={[s.sizeBtnText, markAsTextFontSize === size && s.sizeBtnTextActive]}>
-              {size}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* ── Advanced ── */}
-      <View style={s.separator} />
-      <Text style={s.groupTitle}>Advanced</Text>
-
-      <Pressable style={s.radioRow} onPress={() => setDebugMode(!debugMode)}>
-        <Text style={s.checkbox}>{debugMode ? '[X]' : '[  ]'}</Text>
-        <Text style={s.radioLabel}>Debug mode</Text>
-        <Text style={s.hint}>  Show Log buttons</Text>
-      </Pressable>
-
-      {debugMode && nav && (
-        <Pressable style={[s.btnAction, {marginTop: 8}]} onPress={() => nav.push('diagnostics')}>
-          <Text style={s.btnActionText}>API Diagnostics</Text>
-        </Pressable>
-      )}
-    </ScrollView>
-  );
-
-  // ── Main Layout ──────────────────────────────────────────
   return (
     <View style={s.wrapper}>
-      {/* Header */}
       <View style={s.header}>
         <Text style={s.title}>Settings</Text>
-        <View style={s.headerBtns}>
-          <Pressable style={s.headerBtn} onPress={handleSave} disabled={saving}>
-            <Text style={s.headerBtnText}>{saving ? 'Saving...' : 'Save'}</Text>
-          </Pressable>
+        <View style={s.headerRight}>
+          {saveFailed ? (
+            <Text style={s.headerFail}>Session only — device write failed</Text>
+          ) : lastSaved ? (
+            <Text style={s.headerSaved}>Saved {lastSaved} ✓</Text>
+          ) : null}
           {nav?.canGoBack ? (
             <Pressable style={s.headerBtn} onPress={() => nav.pop()}>
               <Text style={s.headerBtnText}>Back</Text>
@@ -485,463 +285,405 @@ export default function Config({onNavigate, nav}: Props) {
         </View>
       </View>
 
-      {/* Tab bar */}
-      <View style={s.tabBar}>
-        <Pressable
-          style={[s.tab, activeTab === 'connections' && s.tabActive]}
-          onPress={() => setActiveTab('connections')}>
-          <Text style={[s.tabText, activeTab === 'connections' && s.tabTextActive]}>Connections</Text>
-        </Pressable>
-        <Pressable
-          style={[s.tab, activeTab === 'preferences' && s.tabActive]}
-          onPress={() => setActiveTab('preferences')}>
-          <Text style={[s.tabText, activeTab === 'preferences' && s.tabTextActive]}>Preferences</Text>
-        </Pressable>
-      </View>
+      <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
 
-      {/* Body */}
-      <View style={s.body}>
-        {activeTab === 'connections' ? renderConnectionsTab() : renderPreferencesTab()}
-      </View>
+        {/* ── Account & Sync ── */}
+        <Section title="ACCOUNT & SYNC" first>
+          <SettingRow
+            label="Todoist API token"
+            hint="todoist.com/prefs/integrations > API token"
+            onInfo={() => setInfoSheet('token')}
+            saved={savedRow === 'token'}>
+            <View style={s.inputRow}>
+              <TextInput
+                style={[s.input, {flex: 1}]}
+                value={token}
+                onChangeText={setToken}
+                placeholder="Paste your API token"
+                secureTextEntry={tokenMasked}
+              />
+              <Pressable style={s.btnSmall} onPress={handlePaste}>
+                <Text style={s.btnSmallText}>Paste</Text>
+              </Pressable>
+              <Pressable style={s.btnSmall} onPress={() => setTokenMasked(!tokenMasked)}>
+                <Text style={s.btnSmallText}>{tokenMasked ? 'Show' : 'Hide'}</Text>
+              </Pressable>
+              <Pressable style={[s.btnSmall, s.btnSmallPrimary]} onPress={handleSaveToken}>
+                <Text style={[s.btnSmallText, s.btnSmallPrimaryText]}>Save</Text>
+              </Pressable>
+            </View>
+          </SettingRow>
 
-      {/* Token info popup */}
-      {showTokenInfo && (
-        <Pressable style={s.overlayCenter} onPress={() => setShowTokenInfo(false)}>
-          <Pressable style={s.overlayModal} onPress={() => {}}>
-            <Text style={s.overlayTitle}>How to enter your API token</Text>
-            <Text style={s.overlayHint}>
-              Go to todoist.com/prefs/integrations and scroll to "API token" to find yours.
-              You only need to do this once -- your token is saved to the device and persists across reinstalls.
-            </Text>
+          {!token && wasTemplateGenerated() && (
+            <View style={s.notice}>
+              <Text style={s.noticeText}>
+                Config file created at MyStyle/SuperTask/supertask-config.json.
+                Connect via USB to add your token, or tap ? above for all options.
+              </Text>
+            </View>
+          )}
 
-            <View style={s.overlaySeparator} />
+          <SettingRow label="Test connection">
+            <View style={s.inputRow}>
+              <Pressable style={s.btnAction} onPress={handleTestConnection}>
+                <Text style={s.btnActionText}>Test</Text>
+              </Pressable>
+              {status ? <Text style={s.statusInline}>{status}</Text> : null}
+            </View>
+          </SettingRow>
 
-            <Text style={s.methodLabel}>1. Edit config via USB (easiest)</Text>
-            <Text style={s.methodBody}>
-              A config file was created on your device at:{'\n'}
-              MyStyle/SuperTask/supertask-config.json{'\n'}
-              {'\n'}
-              Connect your Supernote to a computer via USB, open the file in a text editor, and replace YOUR_TOKEN_HERE with your actual token. Save the file and reopen the plugin.{'\n'}
-              {'\n'}
-              Your plain text token will be automatically obfuscated the next time the plugin loads.
-            </Text>
+          <SettingRow
+            label="Config source"
+            hint={
+              configSource === 'file'
+                ? 'MyStyle/SuperTask/supertask-config.json'
+                : configSource === 'bundled'
+                ? 'Using build-time config.local.js'
+                : 'No persistent config found'
+            }>
+            <View style={s.sourceChip}>
+              <Text style={s.sourceChipText}>{sourceLabel(configSource)}</Text>
+            </View>
+          </SettingRow>
+        </Section>
 
-            <View style={s.overlaySeparator} />
+        {/* ── Opening SuperTask ── */}
+        <Section title="OPENING SUPERTASK">
+          <SettingRow label="Default tab" saved={savedRow === 'defaultTab'}>
+            <Segmented
+              options={TAB_OPTIONS}
+              value={defaultTab}
+              onChange={v => {
+                setDefaultTab(v);
+                applyChange('defaultTab', {defaultTab: v});
+              }}
+            />
+          </SettingRow>
 
-            <Text style={s.methodLabel}>2. Bluetooth keyboard</Text>
-            <Text style={s.methodBody}>
-              Pair a Bluetooth keyboard (Supernote Settings &gt; Bluetooth), then tap the token field above and paste with Ctrl+V. Tap Save when done.
-            </Text>
+          <CheckRow
+            checked={bezelSwipeEnabled}
+            onToggle={() => {
+              const v = !bezelSwipeEnabled;
+              setBezelSwipeEnabled(v);
+              applyChange('bezel', {bezelSwipeEnabled: v}, true);
+            }}
+            label="Bezel swipe"
+            hint="2+ fingers up from the bottom edge opens tasks"
+            saved={savedRow === 'bezel'}
+          />
 
-            <View style={s.overlaySeparator} />
+          <CheckRow
+            checked={threeFingerTapEnabled}
+            onToggle={() => {
+              const v = !threeFingerTapEnabled;
+              setThreeFingerTapEnabled(v);
+              applyChange('threeFinger', {threeFingerTapEnabled: v}, true);
+            }}
+            label="Three-finger double tap"
+            hint="Opens tasks -- anywhere on the page"
+            saved={savedRow === 'threeFinger'}
+          />
 
-            <Text style={s.methodLabel}>3. On-screen keyboard</Text>
-            <Text style={s.methodBody}>
-              Tap the token field above and type the 40-character token using the on-screen keyboard. Slow, but you only need to do it once. Tap Save when done.
-            </Text>
+          <Text style={s.sectionNote}>Long press on a linked task always opens it.</Text>
+        </Section>
 
-            <Pressable style={s.overlayCloseBtn} onPress={() => setShowTokenInfo(false)}>
-              <Text style={s.overlayCloseBtnText}>Close</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      )}
+        {/* ── Capturing Tasks ── */}
+        <Section title="CAPTURING TASKS">
+          <SettingRow
+            label="Quick Add gesture"
+            onInfo={() => setInfoSheet('gesture')}
+            saved={savedRow === 'quickAdd'}>
+            <Segmented
+              options={GESTURE_OPTIONS}
+              value={lassoGestureInput}
+              onChange={v => {
+                setLassoGestureInput(v);
+                applyChange('quickAdd', {lassoGestureInput: v}, true);
+              }}
+            />
+          </SettingRow>
 
-      {/* Debug server info popup */}
-      {showServerInfo && (
-        <Pressable style={s.overlayCenter} onPress={() => setShowServerInfo(false)}>
-          <Pressable style={s.overlayModal} onPress={() => {}}>
-            <Text style={s.overlayTitle}>Debug Log Server Setup</Text>
-            <Text style={s.overlayHint}>
-              The plugin can stream debug logs over wifi to a small server on your computer.
-              This is optional -- logs are ALWAYS saved on the device at MyStyle/SuperTask/logs/session.log,
-              retrievable via USB. That file is usually all you need for a bug report.
-            </Text>
+          <SettingRow label="After creating a task" saved={savedRow === 'postCreate'}>
+            <Segmented
+              options={POST_CREATE_OPTIONS}
+              value={postCreateAction}
+              onChange={v => {
+                setPostCreateAction(v);
+                applyChange('postCreate', {postCreateAction: v});
+              }}
+            />
+          </SettingRow>
 
-            <View style={s.overlaySeparator} />
+          <SettingRow label="Mark-as-text font size" saved={savedRow === 'fontSize'}>
+            <Segmented
+              options={FONT_SIZE_OPTIONS}
+              value={markAsTextFontSize}
+              onChange={v => {
+                setMarkAsTextFontSize(v as number);
+                applyChange('fontSize', {markAsTextFontSize: v});
+              }}
+            />
+          </SettingRow>
+        </Section>
 
-            <Text style={s.methodLabel}>Get the server file</Text>
-            <Text style={s.methodBody}>
-              dev-server.js is a single small file with no dependencies. It comes with the
-              SuperTask download (next to the .snplg) -- save it anywhere on your computer,
-              e.g. your Desktop. It writes received logs to a logs/ folder beside itself.
-            </Text>
+        {/* ── Projects ── */}
+        {projects.length > 0 && (
+          <Section title="PROJECTS">
+            <SettingRow
+              label="Show projects"
+              hint="Untick projects to hide them across SuperTask"
+              saved={savedRow === 'showProjects'}>
+              <View style={s.checkGrid}>
+                {projects.map(p => (
+                  <CheckItem
+                    key={p.id}
+                    checked={enabledProjectIds.includes(p.id)}
+                    onToggle={() => toggleProject(p.id)}
+                    label={p.name}
+                  />
+                ))}
+              </View>
+            </SettingRow>
 
-            <View style={s.overlaySeparator} />
+            <SettingRow label="Default project for new tasks" saved={savedRow === 'defaultProject'}>
+              <Segmented
+                options={projectOptions}
+                value={defaultProjectId}
+                onChange={v => {
+                  setDefaultProjectId(v);
+                  applyChange('defaultProject', {defaultProjectId: v});
+                }}
+              />
+            </SettingRow>
+          </Section>
+        )}
 
-            <Text style={s.methodLabel}>Mac</Text>
-            <Text style={s.methodBody}>
-              1. Install Node.js from nodejs.org (or: brew install node){'\n'}
-              2. Open Terminal{'\n'}
-              3. cd into the folder where you saved dev-server.js{'\n'}
-              4. Run: node dev-server.js{'\n'}
-              {'\n'}
-              The server prints its address, e.g. http://192.168.1.20:3000/log -- enter that in the field, tap Save, then Test.
-            </Text>
+        {/* ── Debugging ── */}
+        <Section title="DEBUGGING">
+          <CheckRow
+            checked={debugMode}
+            onToggle={() => {
+              const v = !debugMode;
+              setDebugMode(v);
+              applyChange('debugMode', {debugMode: v});
+            }}
+            label="Debug mode"
+            hint="Show Log buttons in screens"
+            saved={savedRow === 'debugMode'}
+          />
 
-            <View style={s.overlaySeparator} />
+          <SettingRow
+            label="Debug log server"
+            hint="Where Upload Log streams logs (computer's LAN IP, not a .local name). Logs always also write to MyStyle/SuperTask/logs/session.log."
+            onInfo={() => setInfoSheet('server')}
+            saved={savedRow === 'server'}>
+            <View style={s.inputRow}>
+              <TextInput
+                style={[s.input, {flex: 1}]}
+                value={debugServerUrl}
+                onChangeText={setDebugServerUrlField}
+                onEndEditing={commitServerUrl}
+                placeholder="http://192.168.x.x:3000/log"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Pressable style={s.btnSmall} onPress={handleTestServer}>
+                <Text style={s.btnSmallText}>Test</Text>
+              </Pressable>
+            </View>
+            {pingStatus ? <Text style={s.statusInline}>{pingStatus}</Text> : null}
+          </SettingRow>
 
-            <Text style={s.methodLabel}>Windows</Text>
-            <Text style={s.methodBody}>
-              1. Install Node.js from nodejs.org{'\n'}
-              2. Open PowerShell (or Command Prompt){'\n'}
-              3. cd into the folder where you saved dev-server.js{'\n'}
-              4. Run: node dev-server.js{'\n'}
-              5. If Windows Firewall asks, click Allow (private networks){'\n'}
-              {'\n'}
-              Enter the printed address in the field, tap Save, then Test.
-            </Text>
+          {debugMode && nav && (
+            <SettingRow label="Diagnostics">
+              <Pressable style={s.btnAction} onPress={() => nav.push('diagnostics')}>
+                <Text style={s.btnActionText}>Open</Text>
+              </Pressable>
+            </SettingRow>
+          )}
+        </Section>
+      </ScrollView>
 
-            <View style={s.overlaySeparator} />
+      {/* ── Info sheets (one template) ── */}
+      <InfoSheet
+        visible={infoSheet === 'token'}
+        title="How to enter your API token"
+        intro={'Go to todoist.com/prefs/integrations and scroll to "API token" to find yours. You only need to do this once -- your token is saved to the device and persists across reinstalls.'}
+        sections={[
+          {label: '1. Edit config via USB (easiest)', body: 'A config file was created on your device at:\nMyStyle/SuperTask/supertask-config.json\n\nConnect your Supernote to a computer via USB, open the file in a text editor, and replace YOUR_TOKEN_HERE with your actual token. Save the file and reopen the plugin.\n\nYour plain text token will be automatically obfuscated the next time the plugin loads.'},
+          {label: '2. Bluetooth keyboard', body: 'Pair a Bluetooth keyboard (Supernote Settings > Bluetooth), then tap the token field, paste with Ctrl+V, and tap Save.'},
+          {label: '3. On-screen keyboard', body: 'Tap the token field and type the 40-character token using the on-screen keyboard. Slow, but you only need to do it once. Tap Save when done.'},
+        ]}
+        onClose={() => setInfoSheet(null)}
+      />
 
-            <Text style={s.methodLabel}>If Test fails</Text>
-            <Text style={s.methodBody}>
-              Supernote and computer must be on the SAME wifi network. Use the computer's
-              LAN IP address (192.168.x.x) -- Android cannot resolve .local names. If your
-              computer's IP changed, the server prints the new one on startup; update the
-              field here (no reinstall needed).
-            </Text>
+      <InfoSheet
+        visible={infoSheet === 'gesture'}
+        title="Quick Add gestures"
+        intro="Choose how to quickly capture handwriting as a task without using the lasso toolbar button."
+        sections={[
+          {label: 'Finger lasso', body: "Hold one finger on the page for about half a second, then drag to draw a selection area. When you lift your finger, the selected content is sent to Quick Add.\n\nThe selection is invisible while you draw -- you won't see the lasso outline. Best for quickly grabbing a rough area of handwriting."},
+          {label: 'Pen lasso', body: "Hold one finger on the screen, then use your pen to draw a lasso selection as you normally would. You'll see the native lasso outline as you draw. When you lift your finger, the selected content is sent to Quick Add.\n\nThis gives you the visible lasso feedback you're used to, with the speed of skipping the toolbar button."},
+        ]}
+        onClose={() => setInfoSheet(null)}
+      />
 
-            <Pressable style={s.overlayCloseBtn} onPress={() => setShowServerInfo(false)}>
-              <Text style={s.overlayCloseBtnText}>Close</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      )}
-
-      {/* Gesture info popup */}
-      {showGestureInfo && (
-        <Pressable style={s.overlayCenter} onPress={() => setShowGestureInfo(false)}>
-          <Pressable style={s.overlayModal} onPress={() => {}}>
-            <Text style={s.overlayTitle}>Quick Add Gestures</Text>
-            <Text style={s.overlayHint}>
-              Choose how to quickly capture handwriting as a task without using the lasso toolbar button.
-            </Text>
-
-            <View style={s.overlaySeparator} />
-
-            <Text style={s.methodLabel}>Finger lasso</Text>
-            <Text style={s.methodBody}>
-              Hold one finger on the page for about half a second, then drag to draw a selection area. When you lift your finger, the selected content is sent to Quick Add.{'\n'}
-              {'\n'}
-              The selection is invisible while you draw -- you won't see the lasso outline. Best for quickly grabbing a rough area of handwriting.
-            </Text>
-
-            <View style={s.overlaySeparator} />
-
-            <Text style={s.methodLabel}>Pen lasso</Text>
-            <Text style={s.methodBody}>
-              Hold one finger on the screen, then use your pen to draw a lasso selection as you normally would. You'll see the native lasso outline as you draw. When you lift your finger, the selected content is sent to Quick Add.{'\n'}
-              {'\n'}
-              This gives you the visible lasso feedback you're used to, with the speed of skipping the toolbar button.
-            </Text>
-
-            <View style={s.overlaySeparator} />
-
-            <Text style={s.methodLabel}>Long press (always on)</Text>
-            <Text style={s.methodBody}>
-              Long press (~1 second) on any content linked to a task to open its detail view. This works regardless of which gesture mode is selected.
-            </Text>
-
-            <Pressable style={s.overlayCloseBtn} onPress={() => setShowGestureInfo(false)}>
-              <Text style={s.overlayCloseBtnText}>Close</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      )}
-
-      {/* Save toast */}
-      {saveStatus ? (
-        <View style={s.toast}>
-          <Text style={s.toastText}>{saveStatus}</Text>
-        </View>
-      ) : null}
+      <InfoSheet
+        visible={infoSheet === 'server'}
+        title="Debug log server setup"
+        intro="The plugin can stream debug logs over wifi to a small server on your computer. This is optional -- logs are ALWAYS saved on the device at MyStyle/SuperTask/logs/session.log, retrievable via USB. That file is usually all you need for a bug report."
+        sections={[
+          {label: 'Get the server file', body: 'dev-server.js is a single small file with no dependencies. It comes with the SuperTask download (next to the .snplg) -- save it anywhere on your computer, e.g. your Desktop. It writes received logs to a logs/ folder beside itself.'},
+          {label: 'Mac', body: '1. Install Node.js from nodejs.org (or: brew install node)\n2. Open Terminal\n3. cd into the folder where you saved dev-server.js\n4. Run: node dev-server.js\n\nThe server prints its address, e.g. http://192.168.1.20:3000/log -- enter that in the field, then tap Test.'},
+          {label: 'Windows', body: '1. Install Node.js from nodejs.org\n2. Open PowerShell (or Command Prompt)\n3. cd into the folder where you saved dev-server.js\n4. Run: node dev-server.js\n5. If Windows Firewall asks, click Allow (private networks)\n\nEnter the printed address in the field, then tap Test.'},
+          {label: 'If Test fails', body: "Supernote and computer must be on the SAME wifi network. Use the computer's LAN IP address (192.168.x.x) -- Android cannot resolve .local names. If your computer's IP changed, the server prints the new one on startup; update the field here (no reinstall needed)."},
+        ]}
+        onClose={() => setInfoSheet(null)}
+      />
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  wrapper: {flex: 1, backgroundColor: '#ffffff'},
-
-  // Header
+  wrapper: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
   header: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 2,
+    borderBottomColor: '#000000',
   },
-  title: {fontSize: 24, fontWeight: '700', color: '#000000'},
-  headerBtns: {flexDirection: 'row', gap: 8},
-  headerBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderWidth: 2,
-    borderColor: '#000000',
-    borderRadius: 4,
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#000000',
   },
-  headerBtnText: {fontSize: 16, fontWeight: '600', color: '#000000'},
-
-  // Tabs
-  tabBar: {
+  headerRight: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#cccccc',
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
     alignItems: 'center',
-    borderBottomWidth: 3,
-    borderBottomColor: 'transparent',
+    gap: 14,
   },
-  tabActive: {borderBottomColor: '#000000'},
-  tabText: {fontSize: 16, color: '#888888', fontWeight: '500'},
-  tabTextActive: {color: '#000000', fontWeight: '700'},
-
-  // Body
-  body: {flex: 1},
-  scroll: {flex: 1},
-  scrollContent: {padding: 20, paddingBottom: 40},
-
-  // Sections
-  groupTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#888888',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#000000',
-    marginTop: 10,
-    marginBottom: 6,
-  },
-  hint: {fontSize: 12, color: '#666666', fontWeight: '400'},
-  separator: {height: 1, backgroundColor: '#cccccc', marginVertical: 14},
-
-  // Inputs
-  input: {
-    borderWidth: 1,
-    borderColor: '#000000',
-    borderRadius: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
+  headerSaved: {
+    fontSize: 14,
+    fontWeight: '600',
     color: '#000000',
   },
-  tokenRow: {flexDirection: 'row', gap: 6, marginBottom: 4},
-
-  // Buttons
-  btnSmall: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#000000',
-    borderRadius: 4,
-    justifyContent: 'center',
+  headerFail: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#000000',
+    textDecorationLine: 'underline',
   },
-  btnSmallText: {fontSize: 13, fontWeight: '600', color: '#000000'},
-  btnDisabled: {borderColor: '#aaaaaa'},
-  btnDisabledText: {color: '#aaaaaa'},
-  btnAction: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+  headerBtn: {
     borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+  },
+  headerBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  inputRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+  },
+  input: {
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 15,
+    color: '#000000',
+    minHeight: 44,
+  },
+  btnSmall: {
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  btnSmallText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  btnSmallPrimary: {
+    backgroundColor: '#000000',
+  },
+  btnSmallPrimaryText: {
+    color: '#ffffff',
+  },
+  btnAction: {
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
     alignSelf: 'flex-start',
   },
-  btnActionText: {fontSize: 15, fontWeight: '700', color: '#000000'},
-
-  // Inline row
-  inlineRow: {flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap'},
-
-  // Status
-  statusInline: {fontSize: 14, color: '#000000'},
-
-  // Config source chip
-  sourceChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  btnActionText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  statusInline: {
+    fontSize: 14,
+    color: '#000000',
+    flexShrink: 1,
+    marginTop: 6,
+  },
+  notice: {
     borderWidth: 1,
-    borderColor: '#000000',
-    borderRadius: 4,
-    backgroundColor: '#f0f0f0',
-  },
-  sourceChipText: {fontSize: 13, fontWeight: '600', color: '#000000'},
-
-  // Toggle row (horizontal buttons like Default tab)
-  toggleRow: {flexDirection: 'row', gap: 6},
-  toggleBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: '#000000',
-    alignItems: 'center',
-  },
-  toggleBtnActive: {backgroundColor: '#000000'},
-  toggleText: {fontSize: 14, fontWeight: '600', color: '#000000'},
-  toggleTextActive: {color: '#ffffff'},
-
-  // Radio
-  radioRow: {flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6},
-  radio: {fontSize: 15, fontWeight: '700', color: '#000000', fontFamily: 'monospace'},
-  radioLabel: {fontSize: 15, color: '#000000'},
-
-  // Checkbox
-  checkbox: {fontSize: 15, fontWeight: '700', color: '#000000', fontFamily: 'monospace'},
-  checkLabel: {fontSize: 14, color: '#000000', flex: 1},
-
-  // 2-column checkbox grid
-  checkGrid: {flexDirection: 'row', flexWrap: 'wrap'},
-  checkItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    width: '50%',
-    paddingVertical: 6,
-  },
-
-  // Button grid (default project, wrapping)
-  buttonGrid: {flexDirection: 'row', flexWrap: 'wrap', gap: 6},
-  gridBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: '#000000',
-    borderRadius: 4,
-  },
-  gridBtnActive: {backgroundColor: '#000000'},
-  gridBtnText: {fontSize: 13, fontWeight: '600', color: '#000000'},
-  gridBtnTextActive: {color: '#ffffff'},
-
-  // Size picker
-  sizeLabel: {fontSize: 14, fontWeight: '600', color: '#000000', marginRight: 4},
-  sizeBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: '#000000',
-  },
-  sizeBtnActive: {backgroundColor: '#000000'},
-  sizeBtnText: {fontSize: 14, color: '#000000'},
-  sizeBtnTextActive: {color: '#ffffff'},
-
-  // Setup notice (first launch)
-  setupNotice: {
-    marginTop: 8,
-    padding: 12,
-    borderWidth: 2,
     borderColor: '#000000',
     borderStyle: 'dashed',
     borderRadius: 4,
-    backgroundColor: '#f8f8f8',
-  },
-  setupNoticeText: {
-    fontSize: 13,
-    color: '#000000',
-    lineHeight: 18,
-  },
-
-  // Info button
-  infoBtn: {
-    width: 28,
-    height: 28,
-    borderWidth: 2,
-    borderColor: '#000000',
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 8,
-  },
-  infoBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#000000',
-  },
-
-  // Info popup overlay
-  overlayCenter: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.15)',
-    zIndex: 20,
-    elevation: 20,
-  },
-  overlayModal: {
-    marginHorizontal: 24,
-    paddingVertical: 24,
-    paddingHorizontal: 20,
-    borderWidth: 3,
-    borderColor: '#000000',
-    borderRadius: 4,
-    backgroundColor: '#ffffff',
-    alignSelf: 'stretch',
-    maxHeight: '85%',
-  },
-  overlayTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#000000',
-    marginBottom: 6,
-  },
-  overlayHint: {
-    fontSize: 13,
-    color: '#666666',
-    lineHeight: 18,
-  },
-  overlaySeparator: {
-    height: 1,
-    backgroundColor: '#cccccc',
-    marginVertical: 12,
-  },
-  methodLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#000000',
-    marginBottom: 4,
-  },
-  methodBody: {
-    fontSize: 13,
-    color: '#000000',
-    lineHeight: 19,
-  },
-  overlayCloseBtn: {
-    marginTop: 16,
-    paddingVertical: 12,
-    borderWidth: 2,
-    borderColor: '#000000',
-    borderRadius: 4,
-    alignItems: 'center',
-  },
-  overlayCloseBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#000000',
-  },
-
-  // Toast
-  toast: {
-    position: 'absolute',
-    bottom: 20,
-    left: 20,
-    right: 20,
     padding: 12,
+    marginBottom: 16,
+  },
+  noticeText: {
+    fontSize: 13,
+    color: '#000000',
+    lineHeight: 18,
+  },
+  sourceChip: {
     borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    alignSelf: 'flex-start',
+    backgroundColor: '#000000',
   },
-  toastText: {fontSize: 15, fontWeight: '700', color: '#000000'},
+  sourceChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  sectionNote: {
+    fontSize: 13,
+    color: '#555555',
+  },
+  checkGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
 });
