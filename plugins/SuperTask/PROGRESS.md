@@ -52,6 +52,10 @@ Decision: local capture is the source of truth, network is opportunistic, URL is
 3. **Portability for future plugins**: generic `template/dev-server.js` (service id `sn-plugin-dev-server`, neutral filenames), debugging section added to `template/README.md`, CLAUDE.md "Debugging on-device" rewritten around the local-first pattern. The in-plugin pieces to copy for a new plugin: `src/utils/debug.js` (needs react-native-fs for the session file) + the Debug Log Server block in `Config.tsx`.
 4. **Plugin identity in sidebar**: toolbar button 100 renamed 'Tasks' -> 'SuperTask' (the sidebar plugins list shows the button name, not PluginConfig name); new 48x48 icon -- bold checkbox with checkmark sweeping out the top-right -- replaces the default-looking puzzle piece (old icon kept as `assets/icon-puzzle-old.png`).
 
+### On-device finding during testing (2026-07-24): B-028 palm+pen false triggers
+
+First live test caught a real false-positive: task home opened during normal writing. Log evidence (18-22-13): `BEZEL SWIPE (recovered from multi-tap): 2 fingers, 1059px up` and false `Three-finger tap (first)` lines while `PEN during FINGER hold` was active. Root cause: palm/hand-edge contacts DO reach the listener during writing (the old "palm rejection is perfect" research finding doesn't hold under real writing), and with two contacts far apart the MOVE y-coordinates jump between contact points -- phantom 1000px+ "displacement". Fix (same day): pen events cancel bezel tracking + poison multi-tap tracking (`penSeen`, also carried in from `_mixedInput`); the displacement-based bezel recovery path is deleted. Primary bezel path was confirmed working in the same log (539px, 343ms, 3 fingers). Retest checklist: extended writing with bezel ON (no false fires), three-finger double tap still works, deliberate bezel swipe still works.
+
 ### Builds
 
 - **`SuperTask-s34-gestures-only.snplg`** (2026-07-23 20:36) -- part 1 only; bisect fallback, not for primary testing

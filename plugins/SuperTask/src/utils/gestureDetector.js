@@ -22,10 +22,14 @@
  *    - Opens task home, same as three-finger double tap
  *    - Parameters from design-gesture-audit.md: natural swipes take
  *      1400-2000ms (max 3500ms), displacement 150px (80px relaxed for 3+
- *      fingers -- 3-finger swipes read shorter). Recovery path: the
- *      digitizer sometimes misreports a multi-finger bezel entry's DOWN
- *      mid-page, which lands in multi-tap tracking -- onMultiTapEnd checks
- *      displacement to reclassify those as bezel swipes.
+ *      fingers -- 3-finger swipes read shorter). The DOWN must land in the
+ *      edge zone -- there is deliberately NO mid-page recovery path (see
+ *      B-028: palm+pen multi-touch produces phantom displacement).
+ *
+ * PALM + PEN POISONING (B-028, on-device 2026-07-24): palm/hand-edge contacts
+ * DO reach the listener during pen writing and look like multi-touch. Any pen
+ * event cancels bezel tracking and poisons multi-tap tracking, so writing can
+ * never fire taps or swipes. Real taps/swipes never involve pen contact.
  *
  * Config (`lassoGestureInput`): 'off' | 'finger' | 'pen-lasso'. Controls ONLY
  * the quick-add gesture (lasso-add / pen-lasso-assist). Long press and
@@ -176,6 +180,18 @@ export function initGestureDetector() {
 
       // Only handle finger events (toolType 1)
       if (msg.toolType !== 1) {
+        // Pen contact means the user is WRITING, not gesturing. Palm/hand-edge
+        // contacts do reach the listener during writing (confirmed on-device
+        // 2026-07-24, B-028) and look like multi-touch -- poison any bezel or
+        // multi-tap tracking so palm+pen can never open the plugin.
+        if (_bezelTracking) {
+          log('Gesture', 'PEN during bezel tracking -- cancelled (writing, not swiping)');
+          _bezelTracking = null;
+        }
+        if (_multiTapTracking && !_multiTapTracking.penSeen) {
+          log('Gesture', 'PEN during multi-tap tracking -- poisoned (palm + pen writing)');
+          _multiTapTracking.penSeen = true;
+        }
         if (_fingerDown) {
           if (_gestureMode === 'pen-lasso') {
             // Pen-lasso mode: track pen activity for lasso interception
@@ -230,21 +246,17 @@ export function initGestureDetector() {
         return;
       }
 
-      // --- Multi-tap tracking path (three-finger double tap + bezel recovery) ---
+      // --- Multi-tap tracking path (three-finger double tap) ---
       if (_multiTapTracking) {
         if (baseAction === 5) {
           const ptrIdx = (msg.action >> 8) & 0xff;
           _multiTapTracking.maxPointers = Math.max(_multiTapTracking.maxPointers, ptrIdx + 1);
           log('Gesture', `Multi-tap: PTR_DOWN[${ptrIdx}], maxPointers=${_multiTapTracking.maxPointers}`);
-        } else if (baseAction === 2) {
-          // Track upward travel for the bezel-swipe recovery path (the
-          // digitizer can misreport a bezel entry's DOWN mid-page)
-          if (msg.y < _multiTapTracking.minY) _multiTapTracking.minY = msg.y;
-        } else if (baseAction === 6) {
-          // PTR_UP -- ignore (individual finger lifts are normal)
+        } else if (baseAction === 2 || baseAction === 6) {
+          // MOVE or PTR_UP -- ignore (fingers drift on e-ink, individual lifts are normal)
         } else if (baseAction === 1 || baseAction === 3) {
           // UP or CANCEL -- all released, evaluate the tap
-          onMultiTapEnd(msg.y);
+          onMultiTapEnd();
         }
         return;
       }
@@ -262,10 +274,12 @@ export function initGestureDetector() {
         const ptrIdx = (msg.action >> 8) & 0xff;
         if (_fingerDown) {
           log('Gesture', `Multi-touch detected (PTR_DOWN[${ptrIdx}]) -- entering multi-tap tracking`);
-          const downY = _fingerDown.y;
-          const downTime = _fingerDown.time;
+          // If pen was already active during this touch (writing, or a native
+          // two-finger+pen lasso), carry the poison into multi-tap tracking
+          // rather than starting it clean. _mixedInput is pen-set in all modes.
+          const penActive = _mixedInput;
           cancelGesture();
-          _multiTapTracking = {maxPointers: ptrIdx + 1, downY, downTime, minY: downY};
+          _multiTapTracking = {maxPointers: ptrIdx + 1, penSeen: penActive};
         }
       } else if (baseAction === 3) {
         cancelGesture();
@@ -499,19 +513,23 @@ function onBezelEnd(finalY, cancelled) {
 
 // --- Three-finger double tap detection ---
 
-function onMultiTapEnd(finalY) {
+function onMultiTapEnd() {
   if (!_multiTapTracking) return;
 
-  const {maxPointers, downY, downTime} = _multiTapTracking;
-  const minY = Math.min(_multiTapTracking.minY, finalY ?? _multiTapTracking.minY);
+  const {maxPointers, penSeen} = _multiTapTracking;
   _multiTapTracking = null;
 
-  // Bezel-swipe recovery: a multi-finger bezel entry whose DOWN was
-  // misreported mid-page lands here instead of the bezel path. Taps have
-  // near-zero travel, so real upward displacement means it was a swipe.
-  if (isBezelSwipe(maxPointers, downY, minY, downTime)) {
-    log('Gesture', `BEZEL SWIPE (recovered from multi-tap): ${maxPointers} fingers, ${Math.round(downY - minY)}px up`);
-    openTaskHome('bezel swipe (recovered)');
+  // Pen was active during this touch cluster: the user was writing (palm +
+  // pen) or doing a native pen lasso. Never interpret it as a tap.
+  // NOTE: the old "bezel swipe recovery" that reclassified multi-tap ends by
+  // upward displacement lived here -- removed after on-device testing
+  // (2026-07-24, B-028): with palm + finger contacts far apart, MOVE y-coords
+  // jump between contact points, producing phantom 1000px+ "displacement"
+  // during normal writing. Indistinguishable from a real swipe, so the
+  // recovery path is gone; the primary bezel path (DOWN in the edge zone,
+  // confirmed working on-device) is the only trigger.
+  if (penSeen) {
+    log('Gesture', `Multi-tap end ignored: pen active during touch (writing)`);
     return;
   }
 
