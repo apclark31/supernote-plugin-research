@@ -16,9 +16,13 @@
  * 4. On a match: update every registry entry for that note, and patch the
  *    Todoist description back-reference for tasks that carry one.
  *
+ * Also backfills notePath for legacy entries from the Todoist description
+ * back-reference (full path stored there since before the registry kept it).
+ *
  * Runs at most once per plugin session (fire-and-forget from TaskHome after
  * data load). Holds no locks; every step degrades to a logged skip. Legacy
- * registry entries without notePath are skipped -- nothing to check against.
+ * entries with neither notePath nor a description path are skipped --
+ * nothing to check against.
  */
 
 import {PluginFileAPI, FileUtils} from 'sn-plugin-lib';
@@ -50,13 +54,35 @@ export async function healRenamedNotes(apiTasks) {
     }
 
     const regTasks = await getAllTasks();
+
+    // Backfill notePath for legacy entries (captured before F-024 fixed
+    // addTask dropping it). The Todoist description back-reference has
+    // stored the FULL path all along -- recover it from there. This fixes
+    // Device-tab labels and replaces the blind same-directory jump guess
+    // with a real path (B-029). Runs before the rename check below so a
+    // backfilled path that turns out stale gets probed in the same pass.
+    for (const rt of regTasks) {
+      if (rt.notePath) continue;
+      const apiTask = (apiTasks || []).find(t => t.id === rt.id);
+      const m = apiTask?.description?.match(/\[SuperTask\] Captured from: (\/.+\.note) p\.\d+/);
+      if (!m) continue;
+      try {
+        await updateTaskNote(rt.id, {noteFile: m[1].split('/').pop(), notePath: m[1]});
+        rt.notePath = m[1]; // visible to the rename check below
+        healed++;
+        log('Heal', `Backfilled notePath for ${rt.id}: ${m[1]}`);
+      } catch (e) {
+        log('Heal', `Backfill failed for ${rt.id}: ${e.message}`);
+      }
+    }
+
     const byPath = new Map();
     for (const rt of regTasks) {
-      if (!rt.notePath) continue; // legacy entry: no path to verify
+      if (!rt.notePath) continue; // legacy entry with no back-reference either: nothing to verify
       if (!byPath.has(rt.notePath)) byPath.set(rt.notePath, []);
       byPath.get(rt.notePath).push(rt);
     }
-    if (byPath.size === 0) return 0;
+    if (byPath.size === 0) return healed;
 
     const knownPaths = new Set(byPath.keys());
 

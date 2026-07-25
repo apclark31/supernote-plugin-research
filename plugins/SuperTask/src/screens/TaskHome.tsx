@@ -17,6 +17,7 @@ import {closePlugin} from '../utils/closePlugin';
 import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask} from '../utils/taskRegistry';
 import {openNote} from '../utils/noteOpener';
 import {healRenamedNotes} from '../utils/noteHeal';
+import {noteLabel} from '../utils/noteLabel';
 import {saveConfig} from '../utils/config';
 import {useFontScale} from '../utils/useFontScale';
 import {Check} from '../components/settings';
@@ -434,7 +435,7 @@ export default function TaskHome({nav, focusTab}: Props) {
         <View style={styles.thisPageHeader}>
           <Text style={[styles.thisPageTitle, {fontSize: Math.round(13 * scale)}]}>This Note</Text>
           <Chip label={String(noteTasks.length)} />
-          {noteCtx ? <Text style={styles.thisPageNote}>{noteCtx.fileName}</Text> : null}
+          {noteCtx ? <Text style={styles.thisPageNote}>{noteLabel(noteCtx.filePath, noteCtx.fileName)}</Text> : null}
         </View>
         {noteTasks.map(({task, pageNum}, i) => (
           <View key={task.id}>
@@ -890,20 +891,6 @@ function groupDoneByBucket(doneTasks: any[], today: string): any[] {
   pushBucket('dweek', 'This Week', buckets.week);
   pushBucket('dearlier', 'Earlier', buckets.earlier);
   return items;
-}
-
-// Filesystem-style note label: "/storage/emulated/0/Note/Connor/1x1.note"
-// -> "Connor / 1x1". Falls back to the bare filename for registry entries
-// that predate notePath storage.
-function noteLabel(notePath?: string, noteFile?: string): string {
-  if (notePath) {
-    const rel = notePath
-      .replace(/^\/storage\/emulated\/0\//, '')
-      .replace(/^(Note|Document)\//, '')
-      .replace(/\.note$/, '');
-    return rel.split('/').filter(Boolean).join(' / ');
-  }
-  return (noteFile || 'Unknown').replace('.note', '');
 }
 
 // Group tasks by project, returning interleaved header + task items

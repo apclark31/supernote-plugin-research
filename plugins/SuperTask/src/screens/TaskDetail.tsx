@@ -15,6 +15,7 @@ import {PluginCommAPI, PluginManager} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {openNote} from '../utils/noteOpener';
+import {noteLabel} from '../utils/noteLabel';
 import {setConfigLoader, updateTask, completeTask, deleteTask} from '../api/todoist';
 import {invalidateCache} from '../cache/taskCache';
 import {log, logError} from '../utils/debug';
@@ -244,7 +245,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
             <View style={{flex: 1}}>
               <Text style={styles.noteContextLabel}>Captured from</Text>
               <Text style={styles.noteContextValue}>
-                {noteContext.noteFile.replace('.note', '')} — page {noteContext.pageNum}
+                {noteLabel(noteContext.notePath, noteContext.noteFile)} — page {noteContext.pageNum}
               </Text>
             </View>
             <Pressable style={styles.viewNoteBtn} onPress={handleViewNote}>
