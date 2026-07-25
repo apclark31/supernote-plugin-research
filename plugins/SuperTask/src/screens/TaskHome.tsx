@@ -68,6 +68,7 @@ export default function TaskHome({nav, focusTab}: Props) {
   const [registryNoteTasks, setRegistryNoteTasks] = useState<any[]>([]);
   const [deviceTasks, setDeviceTasks] = useState<any[]>([]);
   const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>([]);
+  const [debugMode, setDebugModeOn] = useState(false);
 
   // Done tab: fetched lazily on first visit (separate endpoint, not part of
   // the main cache -- completed history changes rarely and can be large)
@@ -89,6 +90,7 @@ export default function TaskHome({nav, focusTab}: Props) {
       }
       if (config.enabledProjectIds?.length > 0) setEnabledProjectIds(config.enabledProjectIds);
       setShowDone(config.showDoneTasks === true);
+      setDebugModeOn(config.debugMode === true);
     });
 
     // Detect current note/page, scan for supertask links, read registry
@@ -303,7 +305,11 @@ export default function TaskHome({nav, focusTab}: Props) {
   // the intent is 1-based; openNote() closes the plugin view itself.
   const handleOpenNote = (path: string, pageNum0?: number) => {
     const intentPage = (pageNum0 ?? -1) + 1; // unknown page -> 0 = last-used
-    log('TaskHome', `OPEN NOTE: ${path} p.${intentPage}`);
+    // sameNote jumps re-target the editor instance already running under the
+    // plugin overlay -- a suspect for ignored page extras (cross-note was the
+    // only case validated in the AgP42 findings)
+    const sameNote = noteCtx?.filePath === path;
+    log('TaskHome', `OPEN NOTE: ${path} page0=${pageNum0 ?? 'unknown'} intent=${intentPage} sameNote=${sameNote} currentPage=${noteCtx?.pageNum ?? 'n/a'}`);
     openNote(path, intentPage).then(result => {
       if (!result.success) log('TaskHome', `openNote failed: ${result.error}`);
     });
@@ -747,10 +753,16 @@ export default function TaskHome({nav, focusTab}: Props) {
         <View style={styles.headerButtons}>
           {/* Primary action is the only inverted button. Log/Diag moved to
               Settings > Debugging -- five identical header buttons had no
-              hierarchy (design-home-v2.md). */}
+              hierarchy (design-home-v2.md). Debug mode restores the Log
+              button here (its Settings hint promises exactly that). */}
           <Pressable style={[styles.headerButton, styles.headerButtonPrimary]} onPress={handleAddTask}>
             <Text style={[styles.headerButtonText, styles.headerButtonPrimaryText]}>+ New</Text>
           </Pressable>
+          {debugMode && (
+            <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'LOG pressed'); nav.push('debug'); }}>
+              <Text style={styles.headerButtonText}>Log</Text>
+            </Pressable>
+          )}
           <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'SETTINGS pressed'); nav.push('config'); }}>
             <Text style={styles.headerButtonText}>Settings</Text>
           </Pressable>

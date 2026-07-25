@@ -580,6 +580,14 @@ export default function Config({onNavigate, nav}: Props) {
           </SettingRow>
 
           {debugMode && nav && (
+            <SettingRow label="Debug log" hint="View log entries and upload to the log server">
+              <Pressable style={s.btnAction} onPress={() => nav.push('debug')}>
+                <Text style={s.btnActionText}>Open</Text>
+              </Pressable>
+            </SettingRow>
+          )}
+
+          {debugMode && nav && (
             <SettingRow label="Diagnostics">
               <Pressable style={s.btnAction} onPress={() => nav.push('diagnostics')}>
                 <Text style={s.btnActionText}>Open</Text>
