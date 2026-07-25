@@ -16,6 +16,7 @@ import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask} from '../utils/taskRegistry';
 import {openNote} from '../utils/noteOpener';
+import {healRenamedNotes} from '../utils/noteHeal';
 import {loadConfig} from '../utils/config';
 import {completeTask, reopenTask, getCompletedTasks} from '../api/todoist';
 import {getCache, fetchTaskData, invalidateCache} from '../cache/taskCache';
@@ -152,8 +153,17 @@ export default function TaskHome({nav, focusTab}: Props) {
     setTasks(fetchedTasks || []);
   }, []);
 
-  // Reconcile registry: remove entries for tasks no longer in Todoist
+  // Reconcile registry: remove entries for tasks no longer in Todoist,
+  // then heal any note renames (B-005, once per session, fire-and-forget)
   const reconcileRegistry = useCallback(async (fetchedTasks: any[]) => {
+    healRenamedNotes(fetchedTasks)
+      .then(healedCount => {
+        if (healedCount > 0) {
+          // Refresh Device tab data so healed paths/labels show immediately
+          getAllRegistryTasks().then(setDeviceTasks).catch(() => {});
+        }
+      })
+      .catch(() => {});
     try {
       const allReg = await getAllRegistryTasks();
       if (allReg.length > 0 && fetchedTasks && fetchedTasks.length > 0) {

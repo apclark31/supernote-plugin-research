@@ -7,6 +7,14 @@
 > - Design docs: `docs/design-*.md` -- deep dives on specific features
 > - Session state: `PROGRESS.md` -- current session handoff notes
 
+## 2026-07-24 (session 34)
+
+### F-018: Native writeFile / RNFS removal -- DROPPED
+**Resolution:** Dropped by decision (Alex). The ~2MB build saving was the entire argument, and the calculus changed in session 34: all RNFS writes now flow through three hardened chokepoints (atomic config writes, serialized registry, debug session log). Swapping proven file I/O for hand-rolled Java carries regression risk with no user-visible benefit.
+
+### T-003: Architecture doc / user README / Ratta feedback bundle -- DROPPED
+**Resolution:** Dropped as a tracked task (Alex). The Ratta feedback deliverable exists and is actively maintained (`ratta-feedback.md`, 9 items). The user README should be refreshed as part of cutting the next release (alongside attaching dev-server.js per the F-022 distribution plan) rather than as standing work; the architecture doc had no consumer.
+
 ## 2026-07-05 (session 31)
 
 ### Gesture lifecycle: removed manual `_enabled` toggle

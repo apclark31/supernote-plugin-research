@@ -150,6 +150,22 @@ export function markCompleted(taskId) {
 }
 
 /**
+ * Update a task's note reference (rename healing, B-005).
+ */
+export function updateTaskNote(taskId, {noteFile, notePath}) {
+  return serialize(async () => {
+    const registry = await read();
+    const t = registry.tasks[taskId];
+    if (t) {
+      if (noteFile) t.noteFile = noteFile;
+      if (notePath) t.notePath = notePath;
+      await write(registry);
+      log('Registry', `Updated note ref for ${taskId}: ${noteFile}`);
+    }
+  });
+}
+
+/**
  * Update a task's ID (e.g., after offline sync replaces local ID with Todoist ID).
  */
 export function updateTaskId(oldId, newId) {

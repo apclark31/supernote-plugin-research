@@ -1,0 +1,158 @@
+/**
+ * Note-rename healing (B-005).
+ *
+ * The registry and Todoist descriptions store note paths. Renaming a .note
+ * file breaks those back-references (View Note, This Note, Device grouping).
+ * The link elements INSIDE the note survive the rename though -- so we can
+ * find the renamed file by looking for our own supertask:// link.
+ *
+ * Strategy (cheap-first, per tracker B-005):
+ * 1. For each distinct registry notePath, check existence (one native call).
+ * 2. For a missing note, list .note files in the SAME directory that aren't
+ *    already claimed by registry entries.
+ * 3. Probe each candidate at the missing task's recorded page for a
+ *    supertask://task/<id> link -- one getElements per candidate, elements
+ *    recycled immediately.
+ * 4. On a match: update every registry entry for that note, and patch the
+ *    Todoist description back-reference for tasks that carry one.
+ *
+ * Runs at most once per plugin session (fire-and-forget from TaskHome after
+ * data load). Holds no locks; every step degrades to a logged skip. Legacy
+ * registry entries without notePath are skipped -- nothing to check against.
+ */
+
+import {PluginFileAPI, FileUtils} from 'sn-plugin-lib';
+import {log} from './debug';
+import {getAllTasks, updateTaskNote} from './taskRegistry';
+import {updateTask} from '../api/todoist';
+import {recycleElements} from './ocr';
+
+let _ranThisSession = false;
+
+/** Reset the once-per-session guard (for Diagnostics/testing). */
+export function resetHealGuard() {
+  _ranThisSession = false;
+}
+
+/**
+ * @param {Array} apiTasks - active Todoist tasks (for description patching)
+ * @returns {Promise<number>} count of registry entries healed
+ */
+export async function healRenamedNotes(apiTasks) {
+  if (_ranThisSession) return 0;
+  _ranThisSession = true;
+
+  let healed = 0;
+  try {
+    if (!FileUtils?.exists || !FileUtils?.listFiles) {
+      log('Heal', 'FileUtils not available -- skipping rename check');
+      return 0;
+    }
+
+    const regTasks = await getAllTasks();
+    const byPath = new Map();
+    for (const rt of regTasks) {
+      if (!rt.notePath) continue; // legacy entry: no path to verify
+      if (!byPath.has(rt.notePath)) byPath.set(rt.notePath, []);
+      byPath.get(rt.notePath).push(rt);
+    }
+    if (byPath.size === 0) return 0;
+
+    const knownPaths = new Set(byPath.keys());
+
+    for (const [path, entries] of byPath) {
+      let exists = true;
+      try {
+        exists = await FileUtils.exists(path);
+      } catch (e) {
+        log('Heal', `exists(${path}) failed: ${e.message}`);
+        continue;
+      }
+      if (exists) continue;
+
+      log('Heal', `Note missing: ${path} (${entries.length} tasks) -- probing same directory`);
+      const dir = path.substring(0, path.lastIndexOf('/'));
+
+      let files = [];
+      try {
+        files = (await FileUtils.listFiles(dir)) || [];
+      } catch (e) {
+        log('Heal', `listFiles(${dir}) failed: ${e.message}`);
+        continue;
+      }
+
+      // listFiles may return bare names or full paths -- normalize
+      const candidates = files
+        .map(f => (typeof f === 'string' ? f : f?.path || ''))
+        .filter(f => f.endsWith('.note'))
+        .map(f => (f.startsWith('/') ? f : `${dir}/${f}`))
+        .filter(f => !knownPaths.has(f));
+
+      // Probe candidates for the first task's link at its recorded page
+      const probe = entries[0];
+      let healedPath = null;
+      for (const cand of candidates) {
+        if (await noteHasTaskLink(cand, probe.pageNum, probe.id)) {
+          healedPath = cand;
+          break;
+        }
+      }
+
+      if (!healedPath) {
+        log('Heal', `No same-directory candidate matched ${path} -- leaving as-is`);
+        continue;
+      }
+
+      const newFile = healedPath.split('/').pop();
+      log('Heal', `Rename detected: ${path} -> ${healedPath} (${entries.length} entries)`);
+
+      for (const rt of entries) {
+        try {
+          await updateTaskNote(rt.id, {noteFile: newFile, notePath: healedPath});
+          healed++;
+        } catch (e) {
+          log('Heal', `Registry update failed for ${rt.id}: ${e.message}`);
+        }
+
+        // Patch the Todoist description back-reference if present
+        const apiTask = (apiTasks || []).find(t => t.id === rt.id);
+        if (apiTask?.description?.includes('Captured from:')) {
+          const newDesc = apiTask.description.replace(
+            /(\[SuperTask\] Captured from: ).*( p\.\d+)/,
+            `$1${healedPath}$2`,
+          );
+          if (newDesc !== apiTask.description) {
+            try {
+              await updateTask(rt.id, {description: newDesc});
+              apiTask.description = newDesc; // keep in-memory copy consistent
+              log('Heal', `Patched Todoist back-reference for ${rt.id}`);
+            } catch (e) {
+              log('Heal', `Description patch failed for ${rt.id} (registry still healed): ${e.message}`);
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    log('Heal', `healRenamedNotes error: ${e.message}`);
+  }
+
+  if (healed > 0) log('Heal', `Healed ${healed} registry entries`);
+  return healed;
+}
+
+async function noteHasTaskLink(notePath, pageNum, taskId) {
+  try {
+    const res = await PluginFileAPI.getElements(pageNum ?? 0, notePath);
+    if (!res?.success || !res.result) return false;
+    const els = res.result;
+    const wanted = `supertask://task/${taskId}`;
+    const found = els.some(el => el.type === 600 && el.link?.destPath === wanted);
+    recycleElements(els);
+    if (found) log('Heal', `Probe hit: ${notePath} p.${pageNum} has link for ${taskId}`);
+    return found;
+  } catch (e) {
+    log('Heal', `Probe failed for ${notePath}: ${e.message}`);
+    return false;
+  }
+}

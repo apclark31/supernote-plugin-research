@@ -646,6 +646,36 @@ async function openTaskHome(trigger) {
 // --- Link scan: runs AFTER gesture classification (finger UP), never on DOWN ---
 // This is the only place the gesture detector touches the SDK for page data.
 // Normal touches never reach here, so writing/scrolling costs zero bridge calls.
+//
+// F-027 latency fix: link rectangles are cached per (filePath, pageNum). A
+// repeat press validates the cache with one cheap getElementCounts call and
+// hit-tests in memory, skipping the expensive full-page getElements marshal
+// (the source of the "sometimes slow" variance). The cache clears whenever
+// the plugin view opens (links only change through plugin actions or manual
+// erase; erases are caught by the element-count check).
+
+const LINK_CACHE_MAX = 8; // pages; oldest evicted
+const _linkCache = new Map(); // "path|page" -> {links: [{taskId,left,top,right,bottom}], count}
+
+// Exported: App.tsx also clears on toolbar-button opens (they bypass
+// openPluginView but equally lead to link-changing plugin actions).
+export function clearLinkCache() {
+  if (_linkCache.size > 0) _linkCache.clear();
+}
+
+function hitTestLinks(links, x, y) {
+  for (const l of links) {
+    if (
+      x >= l.left - HIT_PADDING_PX && x <= l.right + HIT_PADDING_PX &&
+      y >= l.top - HIT_PADDING_PX && y <= l.bottom + HIT_PADDING_PX
+    ) {
+      log('Gesture', `Link scan: hit link -> task ${l.taskId}`);
+      return {taskId: l.taskId};
+    }
+  }
+  log('Gesture', `Link scan: no hit among ${links.length} links`);
+  return null;
+}
 
 async function scanLinksAt(x, y) {
   try {
@@ -666,6 +696,19 @@ async function scanLinksAt(x, y) {
     if (!filePath) {
       log('Gesture', 'Link scan: no active note');
       return null;
+    }
+
+    // Fast path: cached page whose element count is unchanged
+    const cacheKey = `${filePath}|${pageNum}`;
+    const cached = _linkCache.get(cacheKey);
+    if (cached) {
+      const countResult = await withTimeout(PluginFileAPI.getElementCounts(pageNum, filePath));
+      if (countResult?.success && countResult.result === cached.count) {
+        log('Gesture', `Link scan: cache hit (${cached.links.length} links, ${cached.count} elements unchanged)`);
+        return hitTestLinks(cached.links, x, y);
+      }
+      log('Gesture', 'Link scan: cache stale (element count changed) -- rescanning');
+      _linkCache.delete(cacheKey);
     }
 
     log('Gesture', `Link scan: page ${pageNum} of ${filePath} at (${Math.round(x)},${Math.round(y)})`);
@@ -690,40 +733,40 @@ async function scanLinksAt(x, y) {
       return null;
     }
 
+    // Extract link rectangles, recycle the elements immediately, then cache.
     const elements = elemResult.result;
-    const stLinks = elements.filter(
-      (el) => el.type === 600 && el.link?.destPath?.startsWith('supertask://task/')
-    );
+    const links = [];
+    for (const el of elements) {
+      const link = el.link;
+      if (
+        el.type === 600 &&
+        link?.destPath?.startsWith('supertask://task/') &&
+        link.width > 0 && link.height > 0
+      ) {
+        links.push({
+          taskId: link.destPath.replace('supertask://task/', ''),
+          left: link.X,
+          top: link.Y,
+          right: link.X + link.width,
+          bottom: link.Y + link.height,
+        });
+      }
+    }
+    const count = elements.length;
+    recycleAll(elements);
 
-    if (stLinks.length === 0) {
-      log('Gesture', 'Link scan: no supertask links on page');
-      recycleAll(elements);
+    if (_linkCache.size >= LINK_CACHE_MAX) {
+      _linkCache.delete(_linkCache.keys().next().value); // evict oldest
+    }
+    _linkCache.set(cacheKey, {links, count});
+
+    if (links.length === 0) {
+      log('Gesture', `Link scan: no supertask links on page (cached, ${count} elements)`);
       return null;
     }
 
-    log('Gesture', `Link scan: ${stLinks.length} links, hit-testing...`);
-
-    // Hit-test against touch point
-    for (const el of stLinks) {
-      const link = el.link;
-      if (link.width > 0 && link.height > 0) {
-        const left = link.X - HIT_PADDING_PX;
-        const top = link.Y - HIT_PADDING_PX;
-        const right = link.X + link.width + HIT_PADDING_PX;
-        const bottom = link.Y + link.height + HIT_PADDING_PX;
-
-        if (x >= left && x <= right && y >= top && y <= bottom) {
-          const taskId = link.destPath.replace('supertask://task/', '');
-          log('Gesture', `Link scan: hit link -> task ${taskId}`);
-          recycleAll(elements);
-          return {taskId};
-        }
-      }
-    }
-
-    log('Gesture', `Link scan: no hit among ${stLinks.length} links`);
-    recycleAll(elements);
-    return null;
+    log('Gesture', `Link scan: ${links.length} links (cached, ${count} elements), hit-testing...`);
+    return hitTestLinks(links, x, y);
   } catch (e) {
     log('Gesture', `Link scan error: ${e.message}`);
     return null;
@@ -878,6 +921,7 @@ async function openPluginView() {
     // If App isn't mounted yet, getInitialScreen() reads the global on mount.
 
     cancelGesture(); // Clear any in-progress gesture state before showing the view
+    clearLinkCache(); // Plugin actions (capture, convert, mark) change page links
     const result = await PluginManager.showPluginView();
     log('Gesture', `showPluginView result: ${result}`);
   } catch (e) {

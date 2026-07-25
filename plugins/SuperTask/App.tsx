@@ -21,7 +21,7 @@ import QuickAdd from './src/screens/QuickAdd';
 import Config from './src/screens/Config';
 import Diagnostics from './src/screens/Diagnostics';
 import {log, logError, getEntries, setListener, exportLog, setDebugMode} from './src/utils/debug';
-import {initGestureDetector} from './src/utils/gestureDetector';
+import {initGestureDetector, clearLinkCache} from './src/utils/gestureDetector';
 import {closePlugin} from './src/utils/closePlugin';
 import {loadConfig} from './src/utils/config';
 import {getTask as getRegistryTask} from './src/utils/taskRegistry';
@@ -201,6 +201,7 @@ function App(): React.JSX.Element {
         const raw = event?.id;
         const id = typeof raw === 'string' ? parseInt(raw, 10) || raw : raw;
         log('App', `BUTTON pressed raw=${JSON.stringify(raw)} id=${id} (listener)`);
+        clearLinkCache(); // plugin session may change page links (F-027)
         if (id === 200) {
           resetToRef.current?.('capture-lasso');
         } else if (id === 300) {
