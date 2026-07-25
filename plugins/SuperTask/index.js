@@ -15,10 +15,16 @@ import App from './App';
 import {name as appName} from './app.json';
 import {PluginManager} from 'sn-plugin-lib';
 import {initGestureDetector} from './src/utils/gestureDetector';
+import {initTaskCache} from './src/cache/taskCache';
 
 AppRegistry.registerComponent(appName, () => App);
 
 PluginManager.init();
+
+// Hydrate the last session's task snapshot from disk so a cold open paints
+// the list instantly (stale-while-revalidate across process restarts).
+// Fire-and-forget: TaskHome awaits the same promise if it mounts first.
+initTaskCache();
 
 // Register motion listener at init so long-press gestures work
 // even before the plugin UI has ever been opened. The onMsg callback is

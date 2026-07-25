@@ -22,7 +22,7 @@ import {
   Clipboard,
 } from 'react-native';
 import {closePlugin} from '../utils/closePlugin';
-import {loadConfig, saveConfig, getConfigSource, wasTemplateGenerated} from '../utils/config';
+import {loadConfig, saveConfig, getCachedConfig, getConfigSource, wasTemplateGenerated} from '../utils/config';
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
 import {reloadGestureConfig} from '../utils/gestureDetector';
@@ -69,31 +69,48 @@ const TEXT_SCALE_OPTIONS = [
   {key: 1.3, label: 'Extra Large'},
 ];
 
+// Collapse legacy lasso-gesture values to the three valid keys (matches the
+// mapping the async load has always applied)
+function normalizeLassoInput(v?: string): string {
+  if (!v || v === 'off') return 'off';
+  return v === 'pen-lasso' ? 'pen-lasso' : 'finger';
+}
+
 export default function Config({onNavigate, nav}: Props) {
+  // Saved-config snapshot for the FIRST render. Settings is almost always
+  // reached warm (from TaskHome), so every control can paint its saved value
+  // immediately -- previously the screen mounted on defaults and every
+  // checkbox/segment visibly snapped when the async load landed, despite the
+  // data being entirely local. Cold start falls back to defaults and the
+  // loadConfig().then below corrects them (setters bail when values match).
+  const [cfg0] = useState(getCachedConfig);
+
   // Two pages split by frequency of use: General = everyday settings
   // (short scroll -- e-ink scrolling is imperfect); Setup = touch-once /
   // super-user concerns (account, connection, debugging).
-  const [page, setPage] = useState<'general' | 'setup'>('general');
+  const [page, setPage] = useState<'general' | 'setup'>(
+    cfg0 && !cfg0.apiToken ? 'setup' : 'general',
+  );
 
   // Account
-  const [token, setToken] = useState('');
+  const [token, setToken] = useState(cfg0?.apiToken || '');
   const [tokenMasked, setTokenMasked] = useState(true);
   const [status, setStatus] = useState('');
-  const [configSource, setConfigSource] = useState('defaults');
+  const [configSource, setConfigSource] = useState(() => (cfg0 ? getConfigSource() : 'defaults'));
   const [projects, setProjects] = useState<any[]>([]);
 
   // Settings values
-  const [defaultTab, setDefaultTab] = useState('today');
-  const [bezelSwipeEnabled, setBezelSwipeEnabled] = useState(false);
-  const [threeFingerTapEnabled, setThreeFingerTapEnabled] = useState(false);
-  const [lassoGestureInput, setLassoGestureInput] = useState('off');
-  const [postCreateAction, setPostCreateAction] = useState('prompt');
-  const [markAsTextFontSize, setMarkAsTextFontSize] = useState(32);
-  const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>([]);
-  const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null);
-  const [debugMode, setDebugMode] = useState(false);
-  const [debugServerUrl, setDebugServerUrlField] = useState('');
-  const [fontScale, setFontScaleField] = useState(1);
+  const [defaultTab, setDefaultTab] = useState(cfg0?.defaultTab || 'today');
+  const [bezelSwipeEnabled, setBezelSwipeEnabled] = useState(cfg0?.bezelSwipeEnabled === true);
+  const [threeFingerTapEnabled, setThreeFingerTapEnabled] = useState(cfg0?.threeFingerTapEnabled === true);
+  const [lassoGestureInput, setLassoGestureInput] = useState(normalizeLassoInput(cfg0?.lassoGestureInput));
+  const [postCreateAction, setPostCreateAction] = useState(cfg0?.postCreateAction || 'prompt');
+  const [markAsTextFontSize, setMarkAsTextFontSize] = useState(cfg0?.markAsTextFontSize || 32);
+  const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>(cfg0?.enabledProjectIds || []);
+  const [defaultProjectId, setDefaultProjectId] = useState<string | null>(cfg0?.defaultProjectId || null);
+  const [debugMode, setDebugMode] = useState(cfg0?.debugMode === true);
+  const [debugServerUrl, setDebugServerUrlField] = useState(cfg0?.debugServerUrl || '');
+  const [fontScale, setFontScaleField] = useState(cfg0?.fontScale || 1);
   const [importStatus, setImportStatus] = useState('');
 
   // Apply-on-change feedback
@@ -115,17 +132,19 @@ export default function Config({onNavigate, nav}: Props) {
       } else {
         setPage('setup'); // first run: land on Setup so the token flow is front and center
       }
-      if (config.enabledProjectIds) setEnabledProjectIds(config.enabledProjectIds);
+      if (config.enabledProjectIds) {
+        setEnabledProjectIds(prev =>
+          JSON.stringify(prev) === JSON.stringify(config.enabledProjectIds)
+            ? prev
+            : config.enabledProjectIds,
+        );
+      }
       if (config.defaultTab) setDefaultTab(config.defaultTab);
       if (config.defaultProjectId) setDefaultProjectId(config.defaultProjectId);
       if (config.postCreateAction) setPostCreateAction(config.postCreateAction);
       if (config.debugMode !== undefined) setDebugMode(config.debugMode);
       if (config.markAsTextFontSize) setMarkAsTextFontSize(config.markAsTextFontSize);
-      if (config.lassoGestureInput) setLassoGestureInput(
-        config.lassoGestureInput === 'off' ? 'off'
-        : config.lassoGestureInput === 'pen-lasso' ? 'pen-lasso'
-        : 'finger'
-      );
+      if (config.lassoGestureInput) setLassoGestureInput(normalizeLassoInput(config.lassoGestureInput));
       setBezelSwipeEnabled(config.bezelSwipeEnabled === true);
       setThreeFingerTapEnabled(config.threeFingerTapEnabled === true);
       if (config.debugServerUrl) setDebugServerUrlField(config.debugServerUrl);
@@ -138,7 +157,11 @@ export default function Config({onNavigate, nav}: Props) {
           setConfigLoader(() => Promise.resolve({apiToken: config.apiToken}));
           log('Config', 'Auto-fetching projects...');
           const fetched = await getProjects();
-          setProjects(fetched || []);
+          // Identity-stable when unchanged so the projects section doesn't
+          // repaint on every mount
+          setProjects(prev =>
+            JSON.stringify(prev) === JSON.stringify(fetched || []) ? prev : (fetched || []),
+          );
           log('Config', `Auto-fetched ${fetched?.length ?? 0} projects`);
         } catch (err: any) {
           log('Config', `Auto-fetch projects failed: ${err.message}`);

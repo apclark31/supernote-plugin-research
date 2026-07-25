@@ -4,7 +4,7 @@
  * Replaces the old flat TaskList screen with grouped, navigable views.
  */
 
-import React, {useState, useEffect, useCallback} from 'react';
+import React, {useState, useEffect, useCallback, useRef} from 'react';
 import {
   View,
   Text,
@@ -20,9 +20,9 @@ import {healRenamedNotes} from '../utils/noteHeal';
 import {saveConfig} from '../utils/config';
 import {useFontScale} from '../utils/useFontScale';
 import {Check} from '../components/settings';
-import {loadConfig} from '../utils/config';
+import {loadConfig, getCachedConfig} from '../utils/config';
 import {completeTask, reopenTask, getCompletedTasks} from '../api/todoist';
-import {getCache, fetchTaskData, invalidateCache} from '../cache/taskCache';
+import {getCache, fetchTaskData, invalidateCache, initTaskCache} from '../cache/taskCache';
 import {log, logError} from '../utils/debug';
 import TabBar from '../components/TabBar';
 import TaskRow from '../components/TaskRow';
@@ -55,11 +55,22 @@ type ProjectMap = Record<string, string>;
 
 export default function TaskHome({nav, focusTab}: Props) {
   const scale = useFontScale();
+  // Saved-config snapshot for the FIRST render. On any warm open the config
+  // cache is populated, so the tab, filters, and Log button paint correctly
+  // immediately instead of mounting on defaults and visibly snapping when
+  // the async load lands (e-ink repaint). Cold start falls back to defaults
+  // and the loadConfig().then below corrects them (usually behind the
+  // loading screen, so still no visible jump).
+  const [cfg0] = useState(getCachedConfig);
   const [tasks, setTasks] = useState<any[]>([]);
   const [projectMap, setProjectMap] = useState<ProjectMap>({});
   const [projectList, setProjectList] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState(
-    focusTab && TAB_KEYS.includes(focusTab) ? focusTab : 'today',
+  const [activeTab, setActiveTab] = useState(() =>
+    focusTab && TAB_KEYS.includes(focusTab)
+      ? focusTab
+      : cfg0?.defaultTab && TAB_KEYS.includes(cfg0.defaultTab)
+        ? cfg0.defaultTab
+        : 'today',
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -67,8 +78,10 @@ export default function TaskHome({nav, focusTab}: Props) {
   const [pageTaskIds, setPageTaskIds] = useState<string[]>([]);
   const [registryNoteTasks, setRegistryNoteTasks] = useState<any[]>([]);
   const [deviceTasks, setDeviceTasks] = useState<any[]>([]);
-  const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>([]);
-  const [debugMode, setDebugModeOn] = useState(false);
+  const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>(
+    cfg0?.enabledProjectIds?.length ? cfg0.enabledProjectIds : [],
+  );
+  const [debugMode, setDebugModeOn] = useState(cfg0?.debugMode === true);
 
   // Done tab: fetched lazily on first visit (separate endpoint, not part of
   // the main cache -- completed history changes rarely and can be large)
@@ -78,17 +91,25 @@ export default function TaskHome({nav, focusTab}: Props) {
   const [doneFetched, setDoneFetched] = useState(false);
   // F-030: footer toggle -- show completed-today tasks inline on the Today
   // tab, same row pattern as the Done tab (filled box, Done chip, reopen)
-  const [showDone, setShowDone] = useState(false);
+  const [showDone, setShowDone] = useState(cfg0?.showDoneTasks === true);
 
   // Load default tab from config and detect current page on mount
   useEffect(() => {
+    // Cold-start corrector: on warm opens these all match the cfg0-seeded
+    // initial state, and every setter bails without a re-render (primitives
+    // compare equal; the array setter returns prev on deep-equality).
     loadConfig().then(config => {
       // An explicit deep-link focusTab wins over the config default
       if (!focusTab && config.defaultTab && TAB_KEYS.includes(config.defaultTab)) {
-        log('TaskHome', `Setting default tab from config: ${config.defaultTab}`);
         setActiveTab(config.defaultTab);
       }
-      if (config.enabledProjectIds?.length > 0) setEnabledProjectIds(config.enabledProjectIds);
+      if (config.enabledProjectIds?.length > 0) {
+        setEnabledProjectIds(prev =>
+          JSON.stringify(prev) === JSON.stringify(config.enabledProjectIds)
+            ? prev
+            : config.enabledProjectIds,
+        );
+      }
       setShowDone(config.showDoneTasks === true);
       setDebugModeOn(config.debugMode === true);
     });
@@ -154,8 +175,21 @@ export default function TaskHome({nav, focusTab}: Props) {
     })();
   }, []);
 
-  // Apply fetched data to component state
+  // Apply fetched data to component state. Skips the update entirely when
+  // the data matches what is already rendered: the background revalidate
+  // otherwise replaces every list row with an identical copy, which on
+  // e-ink is a visible full-list flash for nothing. Local mutations
+  // (complete/reopen) bypass this via setTasks directly, which leaves the
+  // fingerprint stale in the safe direction -- the next fetch differs from
+  // it and repaints.
+  const dataFp = useRef('');
   const applyData = useCallback((fetchedTasks: any[], fetchedProjects: any[]) => {
+    const fp = JSON.stringify([fetchedTasks, fetchedProjects]);
+    if (fp === dataFp.current) {
+      log('TaskHome', 'Fetched data unchanged -- skipping repaint');
+      return;
+    }
+    dataFp.current = fp;
     const pMap: ProjectMap = {};
     (fetchedProjects || []).forEach((p: any) => { pMap[p.id] = p.name; });
     setProjectMap(pMap);
@@ -219,31 +253,40 @@ export default function TaskHome({nav, focusTab}: Props) {
   useEffect(() => {
     log('TaskHome', 'MOUNT');
 
-    // Stale-while-revalidate: render from cache if available
-    const cached = getCache();
-    if (cached) {
-      log('TaskHome', `Cache hit: ${cached.tasks.length} tasks (age: ${Date.now() - cached.timestamp}ms)`);
-      applyData(cached.tasks, cached.projects);
-      setLoading(false);
-    }
+    (async () => {
+      // Stale-while-revalidate: render from cache if available. On a cold
+      // start the in-memory cache is empty but initTaskCache() serves the
+      // last session's disk snapshot (hydration starts in index.js, so this
+      // await usually resolves instantly) -- the list paints immediately
+      // instead of holding on the loading screen.
+      let cached = getCache();
+      if (!cached) {
+        cached = await initTaskCache();
+      }
+      if (cached) {
+        log('TaskHome', `Cache hit: ${cached.tasks.length} tasks (age: ${Date.now() - cached.timestamp}ms)`);
+        applyData(cached.tasks, cached.projects);
+        setLoading(false);
+      }
 
-    // Always fetch fresh data (deduplicates with any in-flight prefetch)
-    fetchTaskData()
-      .then(data => {
-        if (data) {
-          applyData(data.tasks, data.projects);
-          reconcileRegistry(data.tasks);
-          log('TaskHome', `Fresh data: ${data.tasks.length} tasks, ${data.projects.length} projects`);
-        } else if (!cached) {
-          setError('No API token. Use the config button to set it up.');
-        }
-        setLoading(false);
-      })
-      .catch(err => {
-        logError('TaskHome', err);
-        if (!cached) setError(err.message);
-        setLoading(false);
-      });
+      // Always fetch fresh data (deduplicates with any in-flight prefetch)
+      fetchTaskData()
+        .then(data => {
+          if (data) {
+            applyData(data.tasks, data.projects);
+            reconcileRegistry(data.tasks);
+            log('TaskHome', `Fresh data: ${data.tasks.length} tasks, ${data.projects.length} projects`);
+          } else if (!cached) {
+            setError('No API token. Use the config button to set it up.');
+          }
+          setLoading(false);
+        })
+        .catch(err => {
+          logError('TaskHome', err);
+          if (!cached) setError(err.message);
+          setLoading(false);
+        });
+    })();
   }, [applyData, reconcileRegistry]);
 
   // Lazy-fetch completed tasks on first Done-tab visit or when the

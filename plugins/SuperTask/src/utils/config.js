@@ -332,6 +332,18 @@ export async function loadConfig() {
 }
 
 /**
+ * Synchronous config snapshot from the in-memory cache, or null if no
+ * loadConfig() has completed yet this session. Lets screens initialize
+ * state to saved values on their FIRST render (no post-mount snap) --
+ * on any warm open the cache is already populated. Callers must still
+ * loadConfig() async as the cold-start fallback.
+ */
+export function getCachedConfig() {
+  if (!_runtimeConfig) return null;
+  return {...DEFAULT_CONFIG, ...bundledConfig, ..._runtimeConfig};
+}
+
+/**
  * Whether a template was just generated this session (first launch)
  */
 export function wasTemplateGenerated() {
