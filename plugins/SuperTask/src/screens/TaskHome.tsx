@@ -416,7 +416,8 @@ export default function TaskHome({nav, focusTab}: Props) {
         </View>
       );
     }
-    if (doneTasks.length === 0) {
+    const visibleDone = projectFiltered(doneTasks);
+    if (visibleDone.length === 0) {
       return (
         <View style={styles.centered}>
           <Text style={styles.emptyText}>Nothing completed in the last 30 days</Text>
@@ -424,7 +425,7 @@ export default function TaskHome({nav, focusTab}: Props) {
       );
     }
 
-    const items = groupDoneByBucket(doneTasks, today);
+    const items = groupDoneByBucket(visibleDone, today);
 
     return (
       <FlatList
@@ -455,7 +456,7 @@ export default function TaskHome({nav, focusTab}: Props) {
 
   const renderTodayTab = () => {
     // Tasks due today or overdue, grouped by project
-    const todayTasks = tasks.filter(t => {
+    const todayTasks = projectFiltered(tasks).filter(t => {
       const due = t.due?.date;
       return due && due <= today;
     });
@@ -505,14 +506,15 @@ export default function TaskHome({nav, focusTab}: Props) {
 
   const renderUpcomingTab = () => {
     // Tasks due after today, grouped by date bucket
-    const upcoming = tasks
+    const visible = projectFiltered(tasks);
+    const upcoming = visible
       .filter(t => {
         const due = t.due?.date;
         return due && due > today;
       })
       .sort((a, b) => (a.due?.date || '').localeCompare(b.due?.date || ''));
 
-    const noDue = tasks.filter(t => !t.due?.date);
+    const noDue = visible.filter(t => !t.due?.date);
 
     if (upcoming.length === 0 && noDue.length === 0) {
       return (
@@ -677,6 +679,14 @@ export default function TaskHome({nav, focusTab}: Props) {
   };
 
   const taskCount = tasks.length;
+
+  // B-004: honor the Settings project filter in the time-based views too
+  // (Projects tab already did). Device/This Note stay unfiltered -- they
+  // reflect physical captures, not project preference.
+  const projectFiltered = (list: any[]) =>
+    enabledProjectIds.length > 0
+      ? list.filter(t => !t.project_id || enabledProjectIds.includes(t.project_id))
+      : list;
 
   return (
     <View style={styles.container}>

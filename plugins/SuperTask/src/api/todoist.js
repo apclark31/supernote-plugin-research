@@ -93,6 +93,20 @@ async function todoistFetch(path, options = {}) {
       throw lastError;
     }
 
+    // 429: honor Retry-After (capped) instead of failing outright
+    if (response.status === 429) {
+      const text = await response.text();
+      lastError = new Error(`Todoist rate limited (429): ${text}`);
+      if (attempt < maxRetries) {
+        const retryAfter = parseInt(response.headers?.get?.('retry-after') || '0', 10) || 0;
+        const wait = Math.min(Math.max(retryAfter * 1000, 2000), 15000);
+        log('API', `Rate limited; waiting ${wait}ms (Retry-After: ${retryAfter || 'n/a'})`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      throw lastError;
+    }
+
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`Todoist ${response.status}: ${text}`);
