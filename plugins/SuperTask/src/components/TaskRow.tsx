@@ -17,6 +17,7 @@ import {View, Text, Pressable, StyleSheet} from 'react-native';
 import {log} from '../utils/debug';
 import Chip from './Chip';
 import {Check} from './settings';
+import {useFontScale} from '../utils/useFontScale';
 
 const PRIORITY_LABELS: Record<number, string> = {
   4: 'P1',
@@ -39,6 +40,7 @@ type Props = {
 };
 
 export default function TaskRow({task, onComplete, onPress, showProject, pageNum, checked, completedAt, onOpenNote}: Props) {
+  const scale = useFontScale();
   const [armed, setArmed] = useState(false);
   const armTimer = useRef<any>(null);
   useEffect(() => () => { if (armTimer.current) clearTimeout(armTimer.current); }, []);
@@ -96,7 +98,7 @@ export default function TaskRow({task, onComplete, onPress, showProject, pageNum
         <Check checked={!!checked || armed} />
       </Pressable>
       <View style={styles.content}>
-        <Text style={styles.title}>{task.content}</Text>
+        <Text style={[styles.title, {fontSize: Math.round(16 * scale), lineHeight: Math.round(22 * scale)}]}>{task.content}</Text>
         {chips.length > 0 && (
           <View style={styles.meta}>
             {chips.map((c, i) => (
@@ -110,7 +112,7 @@ export default function TaskRow({task, onComplete, onPress, showProject, pageNum
           style={styles.noteBtn}
           onPress={() => { log('TaskRow', `OPEN NOTE pressed id=${task.id}`); onOpenNote(); }}
           hitSlop={6}>
-          <Text style={styles.noteBtnText}>{'Note >'}</Text>
+          <Text style={[styles.noteBtnText, {fontSize: Math.round(13 * scale)}]}>{'Note >'}</Text>
         </Pressable>
       ) : null}
     </Pressable>

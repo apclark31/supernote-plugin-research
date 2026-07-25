@@ -15,13 +15,22 @@
 
 import React from 'react';
 import {View, Text, Pressable, StyleSheet} from 'react-native';
+import {useFontScale} from '../../utils/useFontScale';
+
+// Accessibility text scale (F-031): StyleSheets are static, so scaled sizes
+// are inline overrides. Boxes/borders stay fixed -- only text scales.
+function useFs() {
+  const scale = useFontScale();
+  return (n: number) => Math.round(n * scale);
+}
 
 // ── Section ────────────────────────────────────────────────
 
 export function Section({title, first, children}: {title: string; first?: boolean; children: React.ReactNode}) {
+  const fs = useFs();
   return (
     <View style={[st.section, !first && st.sectionRule]}>
-      <Text style={st.sectionTitle}>{title}</Text>
+      <Text style={[st.sectionTitle, {fontSize: fs(18)}]}>{title}</Text>
       {children}
     </View>
   );
@@ -30,10 +39,11 @@ export function Section({title, first, children}: {title: string; first?: boolea
 // ── SavedTick ──────────────────────────────────────────────
 
 export function SavedTick({visible}: {visible: boolean}) {
+  const fs = useFs();
   if (!visible) return null;
   return (
     <View style={st.savedChip}>
-      <Text style={st.savedChipText}>Saved ✓</Text>
+      <Text style={[st.savedChipText, {fontSize: fs(13)}]}>Saved ✓</Text>
     </View>
   );
 }
@@ -65,16 +75,17 @@ export function SettingRow({
   saved?: boolean;
   children?: React.ReactNode;
 }) {
+  const fs = useFs();
   return (
     <View style={st.row}>
       <View style={st.rowHeader}>
         <View style={st.rowLabelWrap}>
-          <Text style={st.rowLabel}>{label}</Text>
+          <Text style={[st.rowLabel, {fontSize: fs(16)}]}>{label}</Text>
           {onInfo ? <InfoButton onPress={onInfo} /> : null}
         </View>
         <SavedTick visible={!!saved} />
       </View>
-      {hint ? <Text style={st.rowHint}>{hint}</Text> : null}
+      {hint ? <Text style={[st.rowHint, {fontSize: fs(13)}]}>{hint}</Text> : null}
       {children ? <View style={st.rowControl}>{children}</View> : null}
     </View>
   );
@@ -92,6 +103,7 @@ export function Segmented<T extends string | number | null>({
   value: T;
   onChange: (key: T) => void;
 }) {
+  const fs = useFs();
   return (
     <View style={st.segmentedWrap}>
       {options.map((opt, i) => {
@@ -101,7 +113,7 @@ export function Segmented<T extends string | number | null>({
             key={String(opt.key) + i}
             style={[st.segment, selected && st.segmentSelected]}
             onPress={() => onChange(opt.key)}>
-            <Text style={[st.segmentText, selected && st.segmentTextSelected]} numberOfLines={1}>
+            <Text style={[st.segmentText, {fontSize: fs(15)}, selected && st.segmentTextSelected]} numberOfLines={1}>
               {opt.label}
             </Text>
           </Pressable>
@@ -136,15 +148,16 @@ export function CheckRow({
   hint?: string;
   saved?: boolean;
 }) {
+  const fs = useFs();
   return (
     <Pressable style={st.checkRow} onPress={onToggle}>
       <Check checked={checked} />
       <View style={st.checkRowBody}>
         <View style={st.rowHeader}>
-          <Text style={st.rowLabel}>{label}</Text>
+          <Text style={[st.rowLabel, {fontSize: fs(16)}]}>{label}</Text>
           <SavedTick visible={!!saved} />
         </View>
-        {hint ? <Text style={st.rowHint}>{hint}</Text> : null}
+        {hint ? <Text style={[st.rowHint, {fontSize: fs(13)}]}>{hint}</Text> : null}
       </View>
     </Pressable>
   );
@@ -160,10 +173,11 @@ export function CheckItem({
   onToggle: () => void;
   label: string;
 }) {
+  const fs = useFs();
   return (
     <Pressable style={st.checkItem} onPress={onToggle}>
       <Check checked={checked} size={24} />
-      <Text style={st.checkItemLabel} numberOfLines={1}>{label}</Text>
+      <Text style={[st.checkItemLabel, {fontSize: fs(15)}]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }
@@ -185,21 +199,22 @@ export function InfoSheet({
   sections: InfoSheetSection[];
   onClose: () => void;
 }) {
+  const fs = useFs();
   if (!visible) return null;
   return (
     <Pressable style={st.overlay} onPress={onClose}>
       <Pressable style={st.sheet} onPress={() => {}}>
-        <Text style={st.sheetTitle}>{title}</Text>
-        {intro ? <Text style={st.sheetIntro}>{intro}</Text> : null}
+        <Text style={[st.sheetTitle, {fontSize: fs(20)}]}>{title}</Text>
+        {intro ? <Text style={[st.sheetIntro, {fontSize: fs(14)}]}>{intro}</Text> : null}
         {sections.map((sec, i) => (
           <View key={i}>
             <View style={st.sheetRule} />
-            <Text style={st.sheetLabel}>{sec.label}</Text>
-            <Text style={st.sheetBody}>{sec.body}</Text>
+            <Text style={[st.sheetLabel, {fontSize: fs(15)}]}>{sec.label}</Text>
+            <Text style={[st.sheetBody, {fontSize: fs(14), lineHeight: fs(20)}]}>{sec.body}</Text>
           </View>
         ))}
         <Pressable style={st.sheetClose} onPress={onClose}>
-          <Text style={st.sheetCloseText}>Close</Text>
+          <Text style={[st.sheetCloseText, {fontSize: fs(15)}]}>Close</Text>
         </Pressable>
       </Pressable>
     </Pressable>

@@ -6,6 +6,7 @@
 import React from 'react';
 import {View, Text, Pressable, StyleSheet} from 'react-native';
 import {log} from '../utils/debug';
+import {useFontScale} from '../utils/useFontScale';
 
 type Tab = {
   key: string;
@@ -19,6 +20,7 @@ type Props = {
 };
 
 export default function TabBar({tabs, activeTab, onTabChange}: Props) {
+  const scale = useFontScale();
   return (
     <View style={styles.container}>
       {tabs.map(tab => {
@@ -28,7 +30,7 @@ export default function TabBar({tabs, activeTab, onTabChange}: Props) {
             key={tab.key}
             style={[styles.tab, active && styles.tabActive]}
             onPress={() => { log('TabBar', `TAB pressed: ${tab.key}`); onTabChange(tab.key); }}>
-            <Text style={[styles.tabText, active && styles.tabTextActive]} numberOfLines={1}>
+            <Text style={[styles.tabText, {fontSize: Math.round(15 * scale)}, active && styles.tabTextActive]} numberOfLines={1}>
               {tab.label}
             </Text>
           </Pressable>

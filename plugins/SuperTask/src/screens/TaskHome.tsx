@@ -17,6 +17,9 @@ import {closePlugin} from '../utils/closePlugin';
 import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask} from '../utils/taskRegistry';
 import {openNote} from '../utils/noteOpener';
 import {healRenamedNotes} from '../utils/noteHeal';
+import {saveConfig} from '../utils/config';
+import {useFontScale} from '../utils/useFontScale';
+import {Check} from '../components/settings';
 import {loadConfig} from '../utils/config';
 import {completeTask, reopenTask, getCompletedTasks} from '../api/todoist';
 import {getCache, fetchTaskData, invalidateCache} from '../cache/taskCache';
@@ -51,6 +54,7 @@ const TAB_KEYS = TABS.map(t => t.key);
 type ProjectMap = Record<string, string>;
 
 export default function TaskHome({nav, focusTab}: Props) {
+  const scale = useFontScale();
   const [tasks, setTasks] = useState<any[]>([]);
   const [projectMap, setProjectMap] = useState<ProjectMap>({});
   const [projectList, setProjectList] = useState<any[]>([]);
@@ -71,6 +75,9 @@ export default function TaskHome({nav, focusTab}: Props) {
   const [doneLoading, setDoneLoading] = useState(false);
   const [doneError, setDoneError] = useState('');
   const [doneFetched, setDoneFetched] = useState(false);
+  // F-030: footer toggle -- show completed-today tasks inline on the Today
+  // tab, same row pattern as the Done tab (filled box, Done chip, reopen)
+  const [showDone, setShowDone] = useState(false);
 
   // Load default tab from config and detect current page on mount
   useEffect(() => {
@@ -81,6 +88,7 @@ export default function TaskHome({nav, focusTab}: Props) {
         setActiveTab(config.defaultTab);
       }
       if (config.enabledProjectIds?.length > 0) setEnabledProjectIds(config.enabledProjectIds);
+      setShowDone(config.showDoneTasks === true);
     });
 
     // Detect current note/page, scan for supertask links, read registry
@@ -236,9 +244,10 @@ export default function TaskHome({nav, focusTab}: Props) {
       });
   }, [applyData, reconcileRegistry]);
 
-  // Lazy-fetch completed tasks on first Done-tab visit
+  // Lazy-fetch completed tasks on first Done-tab visit or when the
+  // show-done filter is enabled
   useEffect(() => {
-    if (activeTab !== 'done' || doneFetched || doneLoading) return;
+    if ((activeTab !== 'done' && !showDone) || doneFetched || doneLoading) return;
     (async () => {
       setDoneLoading(true);
       setDoneError('');
@@ -254,7 +263,14 @@ export default function TaskHome({nav, focusTab}: Props) {
         setDoneLoading(false);
       }
     })();
-  }, [activeTab, doneFetched, doneLoading]);
+  }, [activeTab, showDone, doneFetched, doneLoading]);
+
+  const toggleShowDone = () => {
+    const v = !showDone;
+    setShowDone(v);
+    saveConfig({showDoneTasks: v}).catch(() => {});
+    log('TaskHome', `Show done: ${v ? 'on' : 'off'}`);
+  };
 
   const handleReopen = async (taskId: string) => {
     log('TaskHome', `REOPEN pressed taskId=${taskId}`);
@@ -359,7 +375,7 @@ export default function TaskHome({nav, focusTab}: Props) {
     return (
       <View style={styles.thisPage}>
         <View style={styles.thisPageHeader}>
-          <Text style={styles.thisPageTitle}>This Note</Text>
+          <Text style={[styles.thisPageTitle, {fontSize: Math.round(13 * scale)}]}>This Note</Text>
           <Chip label={String(noteTasks.length)} />
           {noteCtx ? <Text style={styles.thisPageNote}>{noteCtx.fileName}</Text> : null}
         </View>
@@ -391,7 +407,7 @@ export default function TaskHome({nav, focusTab}: Props) {
     if (loading) {
       return (
         <View style={styles.centered}>
-          <Text style={styles.loadingText}>Loading tasks...</Text>
+          <Text style={[styles.loadingText, {fontSize: Math.round(16 * scale)}]}>Loading tasks...</Text>
         </View>
       );
     }
@@ -415,7 +431,7 @@ export default function TaskHome({nav, focusTab}: Props) {
     if (doneLoading) {
       return (
         <View style={styles.centered}>
-          <Text style={styles.loadingText}>Loading completed tasks...</Text>
+          <Text style={[styles.loadingText, {fontSize: Math.round(16 * scale)}]}>Loading completed tasks...</Text>
         </View>
       );
     }
@@ -430,7 +446,7 @@ export default function TaskHome({nav, focusTab}: Props) {
     if (visibleDone.length === 0) {
       return (
         <View style={styles.centered}>
-          <Text style={styles.emptyText}>Nothing completed in the last 30 days</Text>
+          <Text style={[styles.emptyText, {fontSize: Math.round(18 * scale)}]}>Nothing completed in the last 30 days</Text>
         </View>
       );
     }
@@ -471,16 +487,30 @@ export default function TaskHome({nav, focusTab}: Props) {
       return due && due <= today;
     });
 
-    if (todayTasks.length === 0) {
+    const doneTodayCount = showDone
+      ? projectFiltered(doneTasks).filter(t => (t.completed_at || '').slice(0, 10) === today).length
+      : 0;
+    if (todayTasks.length === 0 && doneTodayCount === 0) {
       return (
         <View style={styles.centered}>
-          <Text style={styles.emptyText}>No tasks due today</Text>
+          <Text style={[styles.emptyText, {fontSize: Math.round(18 * scale)}]}>No tasks due today</Text>
         </View>
       );
     }
 
     // Group by project
-    const groups = groupByProject(todayTasks, projectMap);
+    const groups: any[] = groupByProject(todayTasks, projectMap);
+
+    // F-030: completed-today section, same pattern as the Done tab
+    if (showDone) {
+      const doneToday = projectFiltered(doneTasks).filter(
+        t => (t.completed_at || '').slice(0, 10) === today,
+      );
+      if (doneToday.length > 0) {
+        groups.push({key: 'header-done-today', type: 'header', title: 'Completed Today', count: doneToday.length});
+        doneToday.forEach(t => groups.push({key: `done-${t.id}`, type: 'doneTask', task: t}));
+      }
+    }
 
     return (
       <FlatList
@@ -492,10 +522,22 @@ export default function TaskHome({nav, focusTab}: Props) {
               <SectionHeader
                 title={item.title}
                 count={item.count}
-                onPress={() => nav.push('project-view', {
+                onPress={item.projectId ? () => nav.push('project-view', {
                   projectId: item.projectId,
                   projectName: item.title,
-                })}
+                }) : undefined}
+              />
+            );
+          }
+          if (item.type === 'doneTask') {
+            return (
+              <TaskRow
+                task={item.task}
+                checked
+                completedAt={item.task.completed_at}
+                onComplete={handleReopen}
+                onPress={handleTaskPress}
+                showProject={projectMap[item.task.project_id]}
               />
             );
           }
@@ -529,7 +571,7 @@ export default function TaskHome({nav, focusTab}: Props) {
     if (upcoming.length === 0 && noDue.length === 0) {
       return (
         <View style={styles.centered}>
-          <Text style={styles.emptyText}>No upcoming tasks</Text>
+          <Text style={[styles.emptyText, {fontSize: Math.round(18 * scale)}]}>No upcoming tasks</Text>
         </View>
       );
     }
@@ -582,7 +624,7 @@ export default function TaskHome({nav, focusTab}: Props) {
     if (items.length === 0) {
       return (
         <View style={styles.centered}>
-          <Text style={styles.emptyText}>No projects</Text>
+          <Text style={[styles.emptyText, {fontSize: Math.round(18 * scale)}]}>No projects</Text>
         </View>
       );
     }
@@ -598,9 +640,9 @@ export default function TaskHome({nav, focusTab}: Props) {
               projectId: item.id,
               projectName: item.name,
             })}>
-            <Text style={styles.projectName}>{item.name}</Text>
+            <Text style={[styles.projectName, {fontSize: Math.round(17 * scale)}]}>{item.name}</Text>
             <View style={styles.projectMeta}>
-              <Text style={styles.projectCount}>
+              <Text style={[styles.projectCount, {fontSize: Math.round(14 * scale)}]}>
                 {item.taskCount} task{item.taskCount !== 1 ? 's' : ''}
               </Text>
               <Text style={styles.projectArrow}>{'>'}</Text>
@@ -616,7 +658,7 @@ export default function TaskHome({nav, focusTab}: Props) {
     if (deviceTasks.length === 0) {
       return (
         <View style={styles.centered}>
-          <Text style={styles.emptyText}>No tasks captured on this device</Text>
+          <Text style={[styles.emptyText, {fontSize: Math.round(18 * scale)}]}>No tasks captured on this device</Text>
         </View>
       );
     }
@@ -701,7 +743,7 @@ export default function TaskHome({nav, focusTab}: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>SuperTask</Text>
+        <Text style={[styles.title, {fontSize: Math.round(22 * scale)}]}>SuperTask</Text>
         <View style={styles.headerButtons}>
           {/* Primary action is the only inverted button. Log/Diag moved to
               Settings > Debugging -- five identical header buttons had no
@@ -727,15 +769,21 @@ export default function TaskHome({nav, focusTab}: Props) {
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>
+        <Text style={[styles.footerText, {fontSize: Math.round(13 * scale)}]}>
           {taskCount} task{taskCount !== 1 ? 's' : ''}
         </Text>
-        <Pressable onPress={() => {
-          fetchData(true);
-          if (activeTab === 'done') setDoneFetched(false); // refetch completed list too
-        }}>
-          <Text style={styles.footerRefresh}>Refresh</Text>
-        </Pressable>
+        <View style={styles.footerRight}>
+          <Pressable style={styles.footerToggle} onPress={toggleShowDone} hitSlop={8}>
+            <Check checked={showDone} size={20} />
+            <Text style={[styles.footerText, {fontSize: Math.round(13 * scale)}]}>Show done</Text>
+          </Pressable>
+          <Pressable onPress={() => {
+            fetchData(true);
+            if (activeTab === 'done' || showDone) setDoneFetched(false); // refetch completed list too
+          }} hitSlop={8}>
+            <Text style={[styles.footerRefresh, {fontSize: Math.round(14 * scale)}]}>Refresh</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -995,9 +1043,19 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#000000',
   },
+  footerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+  },
+  footerToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   footerText: {
     fontSize: 13,
-    color: '#666666',
+    color: '#555555',
   },
   footerRefresh: {
     fontSize: 14,

@@ -26,6 +26,7 @@ import {loadConfig, saveConfig, getConfigSource, wasTemplateGenerated} from '../
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
 import {reloadGestureConfig} from '../utils/gestureDetector';
+import {importTokenFromFile} from '../utils/tokenImport';
 import {
   Section,
   SettingRow,
@@ -62,6 +63,12 @@ const POST_CREATE_OPTIONS = [
 
 const FONT_SIZE_OPTIONS = [24, 28, 32, 36, 40].map(n => ({key: n, label: String(n)}));
 
+const TEXT_SCALE_OPTIONS = [
+  {key: 1, label: 'Default'},
+  {key: 1.15, label: 'Large'},
+  {key: 1.3, label: 'Extra Large'},
+];
+
 export default function Config({onNavigate, nav}: Props) {
   // Two pages split by frequency of use: General = everyday settings
   // (short scroll -- e-ink scrolling is imperfect); Setup = touch-once /
@@ -86,6 +93,8 @@ export default function Config({onNavigate, nav}: Props) {
   const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState(false);
   const [debugServerUrl, setDebugServerUrlField] = useState('');
+  const [fontScale, setFontScaleField] = useState(1);
+  const [importStatus, setImportStatus] = useState('');
 
   // Apply-on-change feedback
   const [savedRow, setSavedRow] = useState<string | null>(null);
@@ -120,6 +129,7 @@ export default function Config({onNavigate, nav}: Props) {
       setBezelSwipeEnabled(config.bezelSwipeEnabled === true);
       setThreeFingerTapEnabled(config.threeFingerTapEnabled === true);
       if (config.debugServerUrl) setDebugServerUrlField(config.debugServerUrl);
+      if (config.fontScale) setFontScaleField(config.fontScale);
 
       setConfigSource(getConfigSource());
 
@@ -175,6 +185,19 @@ export default function Config({onNavigate, nav}: Props) {
 
   const handleSaveToken = () => {
     applyChange('token', {apiToken: token.trim()});
+  };
+
+  // F-029: no-cable auth -- find supertask-token.txt in a synced folder,
+  // import it, delete the plaintext file
+  const handleImportToken = async () => {
+    setImportStatus('Searching synced folders...');
+    const result = await importTokenFromFile();
+    setImportStatus(result.message);
+    if (result.ok) {
+      const config = await loadConfig();
+      if (config.apiToken) setToken(config.apiToken);
+      setConfigSource(getConfigSource());
+    }
   };
 
   const handleTestConnection = async () => {
@@ -339,6 +362,18 @@ export default function Config({onNavigate, nav}: Props) {
             </View>
           </SettingRow>
 
+          <SettingRow
+            label="Import token from file"
+            hint="Save your token as supertask-token.txt, sync it to any Supernote folder (Partner app, cloud, or USB), then tap Import. The file is deleted after import."
+            saved={savedRow === 'token'}>
+            <View style={s.inputRow}>
+              <Pressable style={s.btnAction} onPress={handleImportToken}>
+                <Text style={s.btnActionText}>Import</Text>
+              </Pressable>
+            </View>
+            {importStatus ? <Text style={s.statusInline}>{importStatus}</Text> : null}
+          </SettingRow>
+
           {!token && wasTemplateGenerated() && (
             <View style={s.notice}>
               <Text style={s.noticeText}>
@@ -413,6 +448,23 @@ export default function Config({onNavigate, nav}: Props) {
           />
 
           <Text style={s.sectionNote}>Long press on a linked task always opens it.</Text>
+        </Section>
+
+        {/* ── Display ── */}
+        <Section title="DISPLAY">
+          <SettingRow
+            label="Text size"
+            hint="Larger text across task lists and settings (accessibility)"
+            saved={savedRow === 'fontScale'}>
+            <Segmented
+              options={TEXT_SCALE_OPTIONS}
+              value={fontScale}
+              onChange={v => {
+                setFontScaleField(v as number);
+                applyChange('fontScale', {fontScale: v});
+              }}
+            />
+          </SettingRow>
         </Section>
 
         {/* ── Capturing Tasks ── */}
@@ -542,9 +594,10 @@ export default function Config({onNavigate, nav}: Props) {
         title="How to enter your API token"
         intro={'Go to todoist.com/prefs/integrations and scroll to "API token" to find yours. You only need to do this once -- your token is saved to the device and persists across reinstalls.'}
         sections={[
-          {label: '1. Edit config via USB (easiest)', body: 'A config file was created on your device at:\nMyStyle/SuperTask/supertask-config.json\n\nConnect your Supernote to a computer via USB, open the file in a text editor, and replace YOUR_TOKEN_HERE with your actual token. Save the file and reopen the plugin.\n\nYour plain text token will be automatically obfuscated the next time the plugin loads.'},
-          {label: '2. Bluetooth keyboard', body: 'Pair a Bluetooth keyboard (Supernote Settings > Bluetooth), then tap the token field, paste with Ctrl+V, and tap Save.'},
-          {label: '3. On-screen keyboard', body: 'Tap the token field and type the 40-character token using the on-screen keyboard. Slow, but you only need to do it once. Tap Save when done.'},
+          {label: '1. Sync a token file (easiest -- no cable)', body: 'On your phone or computer, create a plain text file named supertask-token.txt containing ONLY your API token. Sync it to any Supernote folder using the Supernote Partner app or Supernote Cloud (or copy via USB). Then tap Import above. The plugin saves the token securely and deletes the file.'},
+          {label: '2. Edit config via USB', body: 'A config file was created on your device at:\nMyStyle/SuperTask/supertask-config.json\n\nConnect your Supernote to a computer via USB, open the file in a text editor, and replace YOUR_TOKEN_HERE with your actual token. Save the file and reopen the plugin.\n\nYour plain text token will be automatically obfuscated the next time the plugin loads.'},
+          {label: '3. Bluetooth keyboard', body: 'Pair a Bluetooth keyboard (Supernote Settings > Bluetooth), then tap the token field, paste with Ctrl+V, and tap Save.'},
+          {label: '4. On-screen keyboard', body: 'Tap the token field and type the 40-character token using the on-screen keyboard. Slow, but you only need to do it once. Tap Save when done.'},
         ]}
         onClose={() => setInfoSheet(null)}
       />

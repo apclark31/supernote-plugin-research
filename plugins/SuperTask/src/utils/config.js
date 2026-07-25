@@ -19,11 +19,14 @@
 
 import RNFS from 'react-native-fs';
 import {log, setDebugServerUrl} from './debug';
+import {setFontScale} from './fontScale';
 
 // Push derived values into consumers that can't import config (cycle-free
-// direction: config -> debug). Keeps the debug server URL runtime-editable.
+// direction: config -> debug/fontScale). Keeps the debug server URL and the
+// accessibility text scale runtime-editable.
 function withDerived(merged) {
   setDebugServerUrl(merged.debugServerUrl);
+  setFontScale(merged.fontScale || 1);
   return merged;
 }
 
@@ -57,6 +60,10 @@ const DEFAULT_CONFIG = {
   // geometric constraint, so palm activity can mimic it (B-028). Opt-in
   // since session 34; was always-on from session 31 until B-028.
   threeFingerTapEnabled: false,
+  // Show completed tasks inline on the Today tab (footer toggle, F-030)
+  showDoneTasks: false,
+  // Accessibility text scale: 1 / 1.15 / 1.3 (F-031)
+  fontScale: 1,
 };
 
 // Fields that get obfuscated on disk

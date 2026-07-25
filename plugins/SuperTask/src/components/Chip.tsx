@@ -9,11 +9,13 @@
 
 import React from 'react';
 import {View, Text, StyleSheet} from 'react-native';
+import {useFontScale} from '../utils/useFontScale';
 
 export default function Chip({label, inverted}: {label: string; inverted?: boolean}) {
+  const scale = useFontScale();
   return (
     <View style={[st.chip, inverted && st.chipInverted]}>
-      <Text style={[st.text, inverted && st.textInverted]} numberOfLines={1}>
+      <Text style={[st.text, {fontSize: Math.round(12 * scale)}, inverted && st.textInverted]} numberOfLines={1}>
         {label}
       </Text>
     </View>
