@@ -80,6 +80,7 @@ export default function TaskHome({nav, focusTab}: Props) {
   const [pageTaskIds, setPageTaskIds] = useState<string[]>([]);
   const [registryNoteTasks, setRegistryNoteTasks] = useState<any[]>([]);
   const [deviceTasks, setDeviceTasks] = useState<any[]>([]);
+  const [deviceLoaded, setDeviceLoaded] = useState(false);
   const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>(
     cfg0?.enabledProjectIds?.length ? cfg0.enabledProjectIds : [],
   );
@@ -115,6 +116,22 @@ export default function TaskHome({nav, focusTab}: Props) {
       setShowDone(config.showDoneTasks === true);
       setDebugModeOn(config.debugMode === true);
     });
+
+    // Device-tab data is a fast local registry read, independent of note
+    // context -- run it immediately and in parallel. It used to be
+    // serialized BEHIND the ~3s getElements scan below, leaving the
+    // (possibly default) Device tab on a false "no tasks" empty state.
+    (async () => {
+      try {
+        const allReg = await getAllRegistryTasks();
+        setDeviceTasks(allReg);
+        log('TaskHome', `Registry: ${allReg.length} total device tasks`);
+      } catch (e: any) {
+        log('TaskHome', `Device registry read failed: ${e.message}`);
+      } finally {
+        setDeviceLoaded(true);
+      }
+    })();
 
     // Detect current note/page, scan for supertask links, read registry
     (async () => {
@@ -164,15 +181,6 @@ export default function TaskHome({nav, focusTab}: Props) {
         }
       } catch (e: any) {
         log('TaskHome', `Page context detection failed: ${e.message}`);
-      }
-
-      // Load all device tasks from registry (independent of page context)
-      try {
-        const allReg = await getAllRegistryTasks();
-        setDeviceTasks(allReg);
-        log('TaskHome', `Registry: ${allReg.length} total device tasks`);
-      } catch (e: any) {
-        log('TaskHome', `Device registry read failed: ${e.message}`);
       }
     })();
   }, []);
@@ -713,6 +721,12 @@ export default function TaskHome({nav, focusTab}: Props) {
   };
 
   const renderDeviceTab = () => {
+    // Don't claim "no tasks" before the registry read lands -- blank beats
+    // a false empty state that flips (the read is local and fast, so this
+    // is at most one frame)
+    if (!deviceLoaded) {
+      return <View style={styles.centered} />;
+    }
     if (deviceTasks.length === 0) {
       return (
         <View style={styles.centered}>
