@@ -94,12 +94,18 @@
 
 **Suggestion:** Let a plugin register one or more URL schemes at button-registration time (e.g. `registerUrlScheme('supertask')`). When a link with that scheme is tapped, open the plugin (as if its toolbar button were pressed) and deliver the URI through the existing event listener channel. All the pieces -- link tap dispatch, plugin launch, event listeners -- already exist; this just connects them.
 
+### 8. getPageRotationType is exposed in TypeScript but not implemented natively
+
+**What we noticed:** `PluginFileAPI.getPageRotationType` exists in the TS API surface, but the native implementation in `CommAPIModule.java` is commented out and absent from the spec. Calling it never resolves normally.
+
+**Suggestion:** Either restore the native implementation or remove the method from the TS surface -- a permanently-pending promise is the worst failure mode for plugin authors (see our B-019 experience with hung SDK calls).
+
 ## Questions
 
-### 8. Element maxX/maxY semantics
+### 9. Element maxX/maxY semantics
 
 Every stroke element returned by `getLassoElements()` on our A5X has identical `maxX` (20967) and `maxY` (15725) values. These appear to be page-level digitizer constants, not per-stroke bounding boxes. Is this correct? If they are page-level constants, documenting that would help plugin developers avoid treating them as stroke bounds.
 
-### 9. Pen type 16
+### 10. Pen type 16
 
 Strokes on our A5X show `penType=16`, which isn't in the documented pen type list (0=Ballpoint, 1=Fountain, 10=Marker, 11=Pencil, 14=Brush). What pen type does 16 represent? Is it specific to newer firmware or a hardware revision?

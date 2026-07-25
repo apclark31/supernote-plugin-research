@@ -9,6 +9,9 @@
 
 ## 2026-07-24 (session 34)
 
+### T-002: Undocumented SDK native module audit -- DONE
+**Resolution:** Full read of sn-plugin-lib's shipped Java/Kotlin sources (background agent, session 34). Findings in `../../docs/sdk-native-audit.md`. Headlines: no URL-scheme/link-tap interception exists anywhere in the SDK (confirms ratta-feedback item 7 and validates F-027 as the ceiling); no background execution primitives; DexUtils can dynamically load arbitrary dex/.so (policy: do not use); LinkTrail parcelable carries destFileId/destPageId fields stripped from JS; FileSelector accepts hidden folder-picker params (future "link note to task" UI); `getPageRotationType` is TS-exposed but natively dead; `modifyButtonRes` + keep-awake toggles worth on-device probes. F-004 design note: dashboard rows should be linkType 1 file-links for native-tap navigation.
+
 ### F-018: Native writeFile / RNFS removal -- DROPPED
 **Resolution:** Dropped by decision (Alex). The ~2MB build saving was the entire argument, and the calculus changed in session 34: all RNFS writes now flow through three hardened chokepoints (atomic config writes, serialized registry, debug session log). Swapping proven file I/O for hand-rolled Java carries regression risk with no user-visible benefit.
 
