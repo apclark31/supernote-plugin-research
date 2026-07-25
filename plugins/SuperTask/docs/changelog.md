@@ -7,7 +7,13 @@
 > - Design docs: `docs/design-*.md` -- deep dives on specific features
 > - Session state: `PROGRESS.md` -- current session handoff notes
 
-## 2026-07-24 (session 34)
+## 2026-07-25 (session 35)
+
+### B-029: F-026 note jump from TaskHome unreliable -- RESOLVED (confirmed on-device)
+**Resolution:** Root cause was neither the intent mechanism nor the two leading hypotheses (same-note activity reuse; spaces in filenames). Log round 1 showed cross-note jumps working perfectly (page extra honored, `×` in directory fine) while `July 23 More testing.note` failed with the editor's "note not found" -- because that task was captured one day before F-024 fixed `addTask` dropping `notePath`, so the jump fired at an unverified same-directory GUESS that happened to be wrong. Fix chain: (1) `openNote()` pre-flights `RNFS.exists(path)` and fails inside the plugin (TaskHome banner / TaskDetail status) instead of stranding the user; (2) F-033's heal-pass backfill recovers real full paths for legacy entries from the Todoist description back-reference. Confirmed on-device 2026-07-25: previously-failing notes now open, spaces in filenames included -- the editor handles them fine when the path is real.
+
+### B-030: Log screen unreachable from TaskHome -- RESOLVED (confirmed on-device)
+**Resolution:** F-024 removed Log/Diag from the TaskHome header claiming they "live in Settings > Debugging," but only Diagnostics got a Settings row -- the debug screen existed in App.tsx with no reachable entry point from the home flow. Fixed both ends: TaskHome header shows a Log button when `debugMode` is on (honoring the Settings hint "Show Log buttons in screens"), and Settings > Debugging gained a "Debug log" row. Confirmed working in log 2026-07-25 18-11 ("LOG pressed" -> debug screen -> successful upload).
 
 ### T-002: Undocumented SDK native module audit -- DONE
 **Resolution:** Full read of sn-plugin-lib's shipped Java/Kotlin sources (background agent, session 34). Findings in `../../docs/sdk-native-audit.md`. Headlines: no URL-scheme/link-tap interception exists anywhere in the SDK (confirms ratta-feedback item 7 and validates F-027 as the ceiling); no background execution primitives; DexUtils can dynamically load arbitrary dex/.so (policy: do not use); LinkTrail parcelable carries destFileId/destPageId fields stripped from JS; FileSelector accepts hidden folder-picker params (future "link note to task" UI); `getPageRotationType` is TS-exposed but natively dead; `modifyButtonRes` + keep-awake toggles worth on-device probes. F-004 design note: dashboard rows should be linkType 1 file-links for native-tap navigation.

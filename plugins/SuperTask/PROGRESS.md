@@ -4,7 +4,17 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 34 complete -- the largest session to date. v0.3.0 release candidate built (versionCode 5). Everything awaits ONE consolidated on-device test pass (checklist below).**
+**Session 35 in progress -- first on-device testing of the v0.3.0 RC surfaced and resolved two bugs; QoL smoothness pass shipped. Current .snplg (session 35) supersedes the 22:27 session-34 RC. Release still gated on finishing the session-34 checklist below.**
+
+## SESSION 35 (2026-07-25)
+
+**On-device test round 1 outcomes (all fixes confirmed by Alex on-device):**
+- **B-030 (fixed+confirmed):** Log screen was unreachable from TaskHome -- F-024 moved Log "to Settings > Debugging" but only Diagnostics got a row. Now: debugMode-gated Log button in TaskHome header + "Debug log" row in Settings > Debugging.
+- **B-029 (resolved+confirmed):** Note jump failures were legacy registry entries (pre-F-024, no notePath) jumping via an unverified same-directory guess. NOT the intent mechanism (cross-note jumps work, page extra honored, `×` and spaces in paths fine). Fixes: `openNote()` pre-flights `RNFS.exists`, failures surface in a TaskHome banner instead of the editor's toast; heal pass backfills notePath from Todoist description back-refs. Remaining: same-note This Note jump still unverified on-device.
+- **F-032 (confirmed):** QoL smoothness -- `getCachedConfig()` sync accessor (TaskHome + Config seed state on first render; no post-mount tab/control snap), fingerprint diff in applyData (background revalidate skips identical repaints), disk task-cache snapshot (cold opens paint instantly; invalidate deletes it), Device-tab registry read parallelized (was serialized behind the ~3s element scan showing a false "no tasks" empty state). Delta sync via sync_token considered, deliberately skipped.
+- **F-033 (confirmed):** Full-path note labels ("KEEN / 1×1 / Connor") in This Note band, TaskDetail, Device tab via shared `src/utils/noteLabel.js`; legacy-entry backfill makes them real.
+
+**Carry-forward:** finish the session-34 checklist (esp. gesture/palm items 1-3, Done-tab endpoint, token import, rename heal); verify a same-note This Note jump; then cut the v0.3.0 GitHub release (attach .snplg + dev-server.js).
 
 ## SESSION 34 SUMMARY & CONSOLIDATED TEST CHECKLIST
 
