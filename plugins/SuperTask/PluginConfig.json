@@ -2,8 +2,8 @@
   "name": "SuperTask",
   "desc": "Lasso handwritten tasks to Todoist and browse your task list on-device",
   "iconPath": "assets/icon.png",
-  "versionName": "0.2.0",
-  "versionCode": "4",
+  "versionName": "0.3.0",
+  "versionCode": "5",
   "pluginID": "supertask001",
   "pluginKey": "SuperTask",
   "jsMainPath": "index"

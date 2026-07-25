@@ -4,6 +4,44 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
+**Session 34 complete -- the largest session to date. v0.3.0 release candidate built (versionCode 5). Everything awaits ONE consolidated on-device test pass (checklist below).**
+
+## SESSION 34 SUMMARY & CONSOLIDATED TEST CHECKLIST
+
+### What shipped (all cumulative in the final .snplg)
+
+**Gesture stability overhaul** -- B-019 event-driven watchdog (withTimeout alone was provably insufficient: timers suspend when the view is closed), B-020 element leak on scan timeout, B-021 SDK-free onMsg (pre-scan-per-touch eliminated -- the prime device-interference suspect), B-028 palm+pen discrimination in two rounds (pen poisoning + 1.5s cooldown + tap crispness + bezel spatial/continuity gates), bezel swipe reintroduced (F-021, opt-in), three-finger tap made opt-in (F-014), lasso-add default off, F-027 per-page link cache for long-press latency.
+
+**Stability pass 2** -- all six audit findings fixed: fetch timeouts + inflight watchdog (B-022), capture-path element recycling (B-023), guard-flag timeouts incl. duplicate-task fix (B-024), atomic/serialized persistence (B-025), obfuscation config-loss (B-026), Diagnostics listener leak (B-027). Plus B-004 project filter (Today/Upcoming/Done), B-005 rename healing, 429 Retry-After.
+
+**Local-first logging (F-022 phase 1)** -- always-on rotating session.log, runtime-configurable server URL (Settings field + Test/ping + setup popup), 10s upload timeout, distribution-neutral instructions, generic template/dev-server.js, /ping endpoint.
+
+**Settings v2 (F-023)** -- five drawn-View primitives, General/Setup pages split by frequency of use, apply-on-change with per-row Saved chips + header status, dead defaultScreen deleted.
+
+**TaskHome v2 (F-024/025/026)** -- chip metadata language, drawn checkboxes, This Note band (whole-note, page chips), filesystem-style Device labels, Note > jump buttons, arm-then-confirm completion, Done tab with reopen, chipless-row centering.
+
+**New features** -- token file import (F-029), show-done footer filter (F-030), accessibility text scale (F-031). New icon + 'SuperTask' sidebar name.
+
+**Research/process** -- T-002 SDK native audit done (`../../docs/sdk-native-audit.md`), gesture design principles in CLAUDE.md + memory, design docs for settings/home/gesture-options, ratta-feedback items 7-8, F-018/T-003 dropped, F-019 -> SuperHub F-001, F-004 redefined (native local-first dashboard).
+
+### CONSOLIDATED ON-DEVICE TEST CHECKLIST (v0.3.0 RC)
+
+*Setup*: fresh install of the RC; `node dev-server.js` running; Settings > Setup > Debug Log Server shows the right IP; Test reports reachable; `session.log` appears in MyStyle/SuperTask/logs/.
+
+1. **Normal writing with gestures enabled** (bezel ON, three-finger ON, quick-add finger ON for the test): extended real note-taking -- expect ZERO false opens; logs should show poisoning/cooldown/band rejections doing the work.
+2. **Deliberate gestures**: bezel swipe (2 and 3 fingers), three-finger double tap (wait ~1.5s after writing -- pen cooldown is by design), long press on a link (repeat press on the same page visibly faster -- look for F-027 cache-hit lines), lasso-add, pen-lasso.
+3. **B-019 gauntlet**: touch canvas while the plugin view is open, close, verify gestures recover (WATCHDOG lines if anything hung).
+4. **Stability**: wifi-drop during TaskHome load (recovers; next open works); 10+ consecutive captures (no sluggishness); complete a task from a deep link (closes to note, no freeze).
+5. **Settings v2**: toggles cause no row reflow; change settings and leave WITHOUT saving -- everything sticks on reopen; Saved chips + header status appear; no-token first run lands on Setup.
+6. **TaskHome v2**: chips legible; This Note shows other-page tasks with correct p.N and Note > jumps to the right page; Device labels show folders; arm-confirm works (arm, confirm, 3s disarm); Done tab loads (**first on-device use of the completed-tasks endpoint -- verify**); reopen works; Show done surfaces Completed Today; text scale Large/XL wraps chips without truncation; default tab = On Device lands there via gesture/button.
+7. **Token import (F-029)**: sync `supertask-token.txt` via Partner app -> Import -> token saved, file deleted, Test Connection green.
+8. **Rename heal (B-005)**: rename a captured note, reopen plugin -- `Heal:` log lines, Device label updates, Note > still jumps.
+9. **Project filter (B-004)**: enabled projects respected in Today/Upcoming/Done; Device/This Note intentionally unfiltered.
+
+*After the pass*: graduate confirmed tracker items to changelog; decide T-006 (three-finger deprecation) from bezel results on BOTH devices; cut the GitHub release -- attach `SuperTask.snplg` + `dev-server.js` + `release-notes-v0.3.0.md`.
+
+## Session 34 (earlier detail sections follow)
+
 **Session 34 complete through stability pass 2.** Part 1 (gesture overhaul): event-driven watchdog for B-019, scan-timeout leak fix (B-020), SDK-free `onMsg` (B-021), lasso-add default off -- built 2026-07-23, under on-device test as `SuperTask-s34-gestures-only.snplg`. Part 2 (stability pass 2, built 2026-07-24 as `SuperTask.snplg`): all six audit findings fixed (B-022..B-027), three T-005 lows fixed, bezel swipe reintroduced config-gated (F-021), gesture options research written up (`docs/design-gesture-options.md`).
 
 ## Session 34 (continued) -- Stability pass 2, bezel swipe, gesture research
