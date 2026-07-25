@@ -69,7 +69,6 @@ export default function TaskRow({task, onComplete, onPress, showProject, pageNum
   const isToday = dueDate === today;
 
   const chips: Array<{label: string; inverted?: boolean}> = [];
-  if (armed) chips.push({label: 'Tap again to complete', inverted: true});
   if (completedAt) chips.push({label: `Done ${formatDate(completedAt.slice(0, 10))}`});
   if (isOverdue) chips.push({label: `Overdue ${formatDate(dueDate)}`, inverted: true});
   else if (isToday) chips.push({label: 'Today'});
@@ -79,9 +78,21 @@ export default function TaskRow({task, onComplete, onPress, showProject, pageNum
   if (pageNum !== undefined) chips.push({label: `p.${pageNum}`});
   if (task._registryOnly) chips.push({label: 'pending sync'});
 
+  // Layout responds to PERSISTENT metadata: with chips the row top-aligns
+  // (title pairs with the checkbox, chips wrap below); without chips the
+  // single title line centers against the checkbox target. The transient
+  // armed chip is added after this decision so arming never reflows the row.
+  const hasMeta = chips.length > 0;
+  if (armed) chips.unshift({label: 'Tap again to complete', inverted: true});
+
   return (
-    <Pressable style={styles.row} onPress={() => { log('TaskRow', `ROW pressed id=${task.id}`); onPress(task); }}>
-      <Pressable style={styles.checkTarget} onPress={handleCheckPress} hitSlop={6}>
+    <Pressable
+      style={[styles.row, !hasMeta && styles.rowCentered]}
+      onPress={() => { log('TaskRow', `ROW pressed id=${task.id}`); onPress(task); }}>
+      <Pressable
+        style={[styles.checkTarget, !hasMeta && styles.checkTargetCentered]}
+        onPress={handleCheckPress}
+        hitSlop={6}>
         <Check checked={!!checked || armed} />
       </Pressable>
       <View style={styles.content}>
@@ -119,6 +130,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
   },
+  rowCentered: {
+    alignItems: 'center',
+  },
   checkTarget: {
     width: 44,
     minHeight: 44,
@@ -126,6 +140,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 0,
     marginRight: 6,
+  },
+  checkTargetCentered: {
+    justifyContent: 'center',
   },
   content: {
     flex: 1,
