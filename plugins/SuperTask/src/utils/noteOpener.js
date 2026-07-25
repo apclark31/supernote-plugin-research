@@ -7,6 +7,7 @@
  * See docs/design-native-intents.md for full rationale.
  */
 import {NativeModules} from 'react-native';
+import RNFS from 'react-native-fs';
 import {PluginManager} from 'sn-plugin-lib';
 import {log, logError} from './debug';
 
@@ -21,6 +22,21 @@ const {NoteOpener} = NativeModules;
 export async function openNote(path, page = 0) {
   if (!NoteOpener) {
     return {success: false, error: 'NoteOpener native module not available'};
+  }
+  // Pre-flight: firing the intent at a nonexistent path shows the editor's
+  // own "note not found" and leaves the user stranded outside the plugin.
+  // Legacy registry entries jump via a guessed path (B-029), so verify
+  // first and fail INSIDE the plugin where we can show what was tried.
+  // exists=true in the log also convicts the editor when it still refuses
+  // a real file (spaces-in-filename hypothesis).
+  try {
+    const exists = await RNFS.exists(path);
+    log('NoteOpener', `pre-flight exists=${exists} for ${path}`);
+    if (!exists) {
+      return {success: false, error: `Note not found on device: ${path}`};
+    }
+  } catch (e) {
+    log('NoteOpener', `pre-flight exists() failed (proceeding anyway): ${e.message}`);
   }
   try {
     log('NoteOpener', `openNote path=${path} page=${page}`);

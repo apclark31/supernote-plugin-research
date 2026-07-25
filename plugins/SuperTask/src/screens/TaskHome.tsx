@@ -74,6 +74,7 @@ export default function TaskHome({nav, focusTab}: Props) {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [jumpError, setJumpError] = useState('');
   const [noteCtx, setNoteCtx] = useState<{fileName: string; pageNum: number; filePath: string} | null>(null);
   const [pageTaskIds, setPageTaskIds] = useState<string[]>([]);
   const [registryNoteTasks, setRegistryNoteTasks] = useState<any[]>([]);
@@ -353,8 +354,15 @@ export default function TaskHome({nav, focusTab}: Props) {
     // only case validated in the AgP42 findings)
     const sameNote = noteCtx?.filePath === path;
     log('TaskHome', `OPEN NOTE: ${path} page0=${pageNum0 ?? 'unknown'} intent=${intentPage} sameNote=${sameNote} currentPage=${noteCtx?.pageNum ?? 'n/a'}`);
+    setJumpError('');
     openNote(path, intentPage).then(result => {
-      if (!result.success) log('TaskHome', `openNote failed: ${result.error}`);
+      if (!result.success) {
+        log('TaskHome', `openNote failed: ${result.error}`);
+        // Failure leaves the plugin view open, so timers run and the
+        // banner reliably clears
+        setJumpError(result.error || 'Could not open note');
+        setTimeout(() => setJumpError(''), 6000);
+      }
     });
   };
 
@@ -817,6 +825,12 @@ export default function TaskHome({nav, focusTab}: Props) {
 
       <TabBar tabs={TABS} activeTab={activeTab} onTabChange={(tab) => { log('TaskHome', `TAB changed: ${tab}`); setActiveTab(tab); }} />
 
+      {jumpError ? (
+        <View style={styles.jumpError}>
+          <Text style={styles.jumpErrorText}>{jumpError}</Text>
+        </View>
+      ) : null}
+
       {renderThisNote()}
 
       <View style={styles.body}>
@@ -1004,6 +1018,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   headerButtonPrimaryText: {
+    color: '#ffffff',
+  },
+  jumpError: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#000000',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#000000',
+  },
+  jumpErrorText: {
+    fontSize: 13,
+    fontWeight: '700',
     color: '#ffffff',
   },
   thisPage: {
