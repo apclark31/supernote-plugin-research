@@ -11,7 +11,7 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 37 (2026-07-26) -- B-031 diagnostic build. Pen strokes through the plugin view COMMIT to the note underneath (SNDEV-59, Highest, v0.3.0 release blocker). Current .snplg (session 37) supersedes the session-35 build and adds view-state tracking + pen-through-view logging. Fix direction per Alex: PREVENTION ONLY -- plugin screens are selection UI, pen ink belongs to the canvas; no "get out of the way" auto-close. Release gated on B-031 + the session-34 checklist below.**
+**Session 37 (2026-07-26) -- B-031 diagnostic build; issue then reframed. The pen write-through could NOT be reproduced later the same day: pen input on Settings now scrolls the menu correctly (same on SuperHub + sticker plugin), so the incident was one-off, state-dependent pen routing at the platform level. SNDEV-59 downgraded Highest -> High, back to To Do as a watch item, NO LONGER a v0.3.0 blocker. Current .snplg (session 37, 20:35) keeps the diagnostics armed (view-state tracking + pen-through-view logging into the always-on session log) so a recurrence self-documents. Release gated on the session-34 checklist below only.**
 
 ## SESSION 37 (2026-07-26) -- B-031 pen write-through: diagnostic; stopgap built then removed
 
