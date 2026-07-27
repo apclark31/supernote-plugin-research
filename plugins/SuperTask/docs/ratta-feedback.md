@@ -108,7 +108,7 @@
 
 **Potential use cases affected:** Every plugin with a full-screen view. Especially capture/annotation plugins the user opens while writing.
 
-**Our workaround (SuperTask):** None that prevents it. We enumerated the full `PluginManager` surface (0.1.43) -- there is no API for pen/touch enablement. Best available mitigation is detecting sustained pen movement via `registerMotionListener` while our view is open and closing the plugin view so the ink at least lands on a visible page.
+**Our workaround (SuperTask):** None. We enumerated the full `PluginManager` surface (0.1.43) -- there is no API for pen/touch enablement. We considered detecting pen movement via `registerMotionListener` while our view is open and closing the plugin view so the ink at least lands on a visible page, and rejected it: ejecting the user from a settings/capture screen because the pen touched it is hostile UX, and it still doesn't prevent the write. There is no acceptable app-level mitigation; this needs a platform fix.
 
 **Suggestion:** Suspend pen-to-note commit (and ideally the fast-ink overlay) while a plugin view is showing -- the same way capacitive touch is already routed to the plugin. Alternatively, expose an explicit API (`setPenInputEnabled(false)` scoped to the plugin view lifetime), or deliver pen events to the plugin view instead of the note while it is up.
 

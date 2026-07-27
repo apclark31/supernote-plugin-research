@@ -70,15 +70,15 @@
  * view intercepts capacitive touches). The listener stays active across UI
  * open/close. The EMR PEN is a separate input plane this does NOT hold for:
  * pen strokes made while the view is up commit ink to the note underneath
- * (B-031). onEventWhileViewOpen() logs that window and, when
- * penWriteGuardEnabled is set, closes the view on sustained pen movement.
+ * (B-031, unfixed -- no SDK API to detach the pen). onEventWhileViewOpen()
+ * logs that window so every incident is timestamped and characterised.
  */
 
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {log} from './debug';
 import {loadConfig} from './config';
 import {fetchTaskData} from '../cache/taskCache';
-import {isViewOpen, getCurrentScreen, markViewOpen, markViewClosed} from './viewState';
+import {isViewOpen, getCurrentScreen, markViewOpen} from './viewState';
 
 // --- Action / tool decoding (matches Diagnostics format) ---
 const ACTION_NAMES = {0: 'DOWN', 1: 'UP', 2: 'MOVE', 3: 'CANCEL', 5: 'PTR_DOWN', 6: 'PTR_UP'};
@@ -153,20 +153,15 @@ let _multiTapTracking = null;  // {maxPointers, penSeen, startTime} or null
 let _threeFingerTap = null;    // {time} or null -- records first 3-finger tap, awaiting second
 let _lastPenTime = 0;          // Last pen event -- gates taps/swipes near writing (B-028)
 
-// --- B-031: pen-through-view diagnostic + guard state ---
-let _penGuardEnabled = false;  // Config-gated (penWriteGuardEnabled), default off
+// --- B-031: pen-through-view diagnostic state ---
 let _viewOpenStroke = null;    // {downX, downY, startTime, moveCount, maxTravel} of pen stroke while view open
-let _penGuardFiredAt = 0;      // Last guard fire -- throttles repeat closes
-const PEN_GUARD_MIN_MOVES = 6;    // Sustained movement = writing; a UI tap with the
-const PEN_GUARD_MIN_TRAVEL = 30;  // pen is a few MOVEs with near-zero travel
-const PEN_GUARD_REFIRE_MS = 3000;
 
 /**
  * B-031 diagnostic: an event arrived while the plugin view is (believed)
- * open. Logs the evidence and, when the pen-write guard is enabled, closes
- * the view on sustained pen movement so the ink lands on a note the user
- * can see -- it cannot PREVENT the write (no SDK API for that), it converts
- * silent corruption into a visible stroke.
+ * open. Pen strokes in this window COMMIT ink to the note underneath -- the
+ * plugin cannot prevent that from JS (no SDK API), so until prevention
+ * exists (native interception or an SDK fix from Ratta) this logs every
+ * incident with enough shape to characterise it.
  */
 function onEventWhileViewOpen(msg) {
   const baseAction = msg.action & 0xff;
@@ -186,21 +181,6 @@ function onEventWhileViewOpen(msg) {
       if (travel > _viewOpenStroke.maxTravel) _viewOpenStroke.maxTravel = travel;
       if (_viewOpenStroke.moveCount === 1 || _viewOpenStroke.moveCount % 25 === 0) {
         log('Gesture', `B-031: PEN MOVE #${_viewOpenStroke.moveCount} travel=${Math.round(travel)}px while view OPEN`);
-      }
-      if (
-        _penGuardEnabled &&
-        _viewOpenStroke.moveCount >= PEN_GUARD_MIN_MOVES &&
-        _viewOpenStroke.maxTravel >= PEN_GUARD_MIN_TRAVEL &&
-        Date.now() - _penGuardFiredAt > PEN_GUARD_REFIRE_MS
-      ) {
-        _penGuardFiredAt = Date.now();
-        log('Gesture', `B-031 GUARD: pen writing detected on screen=${screen} (${_viewOpenStroke.moveCount} moves, ${Math.round(_viewOpenStroke.maxTravel)}px) -- closing plugin view`);
-        try {
-          PluginManager.closePluginView();
-          markViewClosed('pen-guard');
-        } catch (e) {
-          log('Gesture', `B-031 GUARD: closePluginView failed: ${e.message}`);
-        }
       }
     } else if ((baseAction === 1 || baseAction === 3) && _viewOpenStroke) {
       const s = _viewOpenStroke;
@@ -434,11 +414,10 @@ function applyGestureConfig(config) {
   _gestureMode = input === 'pen-lasso' ? 'pen-lasso' : input === 'finger' ? 'finger' : 'off';
   _bezelEnabled = config?.bezelSwipeEnabled === true;
   _threeFingerEnabled = config?.threeFingerTapEnabled === true;
-  _penGuardEnabled = config?.penWriteGuardEnabled === true;
   if (_gestureMode === 'off') {
     cancelGesture();
   }
-  log('Gesture', `Config: quick-add mode=${_gestureMode}, bezelSwipe=${_bezelEnabled ? 'on' : 'off'}, threeFingerTap=${_threeFingerEnabled ? 'on' : 'off'}, penWriteGuard=${_penGuardEnabled ? 'on' : 'off'} (long press always on)`);
+  log('Gesture', `Config: quick-add mode=${_gestureMode}, bezelSwipe=${_bezelEnabled ? 'on' : 'off'}, threeFingerTap=${_threeFingerEnabled ? 'on' : 'off'} (long press always on)`);
 }
 
 // --- Internal handlers ---

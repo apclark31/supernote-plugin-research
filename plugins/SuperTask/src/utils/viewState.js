@@ -6,13 +6,14 @@
  * capacitive touch. Our full-screen view hides the note but does NOT detach
  * the pen from it -- pen strokes made while any plugin screen is open COMMIT
  * ink to the note underneath (confirmed on-device 2026-07-26). The gesture
- * detector needs to know "is the view up right now?" so it can (a) log every
- * pen event that arrives in that window and (b) optionally get out of the
- * way. There is no SDK query for view visibility, so every open/close path
- * reports here:
+ * detector needs to know "is the view up right now?" so it can log every
+ * pen event that arrives in that window -- prevention is not possible from
+ * JS, so characterising each incident is the best the plugin can do until a
+ * native or SDK-level fix exists. There is no SDK query for view
+ * visibility, so every open/close path reports here:
  *   open:  button/config press listeners (index.js + App.tsx), App mount,
  *          gestureDetector.openPluginView()
- *   close: closePlugin(), noteOpener intents, App unmount, pen-write guard
+ *   close: closePlugin(), noteOpener intents, App unmount
  *
  * If the system dismisses the view through a path we don't know about, the
  * flag goes stale-open. The B-031 diagnostic logs FINGER events seen while

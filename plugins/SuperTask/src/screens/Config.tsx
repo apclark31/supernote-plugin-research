@@ -117,7 +117,6 @@ export default function Config({onNavigate, nav}: Props) {
   const [enabledProjectIds, setEnabledProjectIds] = useState<string[]>(cfg0?.enabledProjectIds || []);
   const [defaultProjectId, setDefaultProjectId] = useState<string | null>(cfg0?.defaultProjectId || null);
   const [debugMode, setDebugMode] = useState(cfg0?.debugMode === true);
-  const [penWriteGuardEnabled, setPenWriteGuardEnabled] = useState(cfg0?.penWriteGuardEnabled === true);
   const [debugServerUrl, setDebugServerUrlField] = useState(cfg0?.debugServerUrl || '');
   const [fontScale, setFontScaleField] = useState(cfg0?.fontScale || 1);
   const [importStatus, setImportStatus] = useState('');
@@ -156,7 +155,6 @@ export default function Config({onNavigate, nav}: Props) {
       if (config.lassoGestureInput) setLassoGestureInput(normalizeLassoInput(config.lassoGestureInput));
       setBezelSwipeEnabled(config.bezelSwipeEnabled === true);
       setThreeFingerTapEnabled(config.threeFingerTapEnabled === true);
-      setPenWriteGuardEnabled(config.penWriteGuardEnabled === true);
       if (config.debugServerUrl) setDebugServerUrlField(config.debugServerUrl);
       if (config.fontScale) setFontScaleField(config.fontScale);
 
@@ -582,18 +580,6 @@ export default function Config({onNavigate, nav}: Props) {
             label="Debug mode"
             hint="Show Log buttons in screens"
             saved={savedRow === 'debugMode'}
-          />
-
-          <CheckRow
-            checked={penWriteGuardEnabled}
-            onToggle={() => {
-              const v = !penWriteGuardEnabled;
-              setPenWriteGuardEnabled(v);
-              applyChange('penWriteGuard', {penWriteGuardEnabled: v}, true);
-            }}
-            label="Close on pen writing (experimental)"
-            hint="B-031: pen strokes made while SuperTask is open write into the note underneath. This closes SuperTask when writing is detected so the ink lands somewhere you can see."
-            saved={savedRow === 'penWriteGuard'}
           />
 
           <SettingRow

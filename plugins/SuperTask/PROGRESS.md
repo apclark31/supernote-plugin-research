@@ -11,27 +11,27 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
-**Session 37 (2026-07-26) -- B-031 diagnostic + stopgap build. Pen strokes through the plugin view COMMIT to the note underneath (SNDEV-59, Highest, v0.3.0 release blocker). Current .snplg (session 37, 17:38) supersedes the session-35 build and adds view-state tracking, pen-through-view logging, and an opt-in "close on pen writing" guard. Release gated on B-031 + the session-34 checklist below.**
+**Session 37 (2026-07-26) -- B-031 diagnostic build. Pen strokes through the plugin view COMMIT to the note underneath (SNDEV-59, Highest, v0.3.0 release blocker). Current .snplg (session 37) supersedes the session-35 build and adds view-state tracking + pen-through-view logging. Fix direction per Alex: PREVENTION ONLY -- plugin screens are selection UI, pen ink belongs to the canvas; no "get out of the way" auto-close. Release gated on B-031 + the session-34 checklist below.**
 
-## SESSION 37 (2026-07-26) -- B-031 pen write-through: diagnostic + gated stopgap
+## SESSION 37 (2026-07-26) -- B-031 pen write-through: diagnostic; stopgap built then removed
 
 **Context:** SNDEV-59 / B-031, reported+confirmed session 36: writing with the pen while any plugin screen is open (seen on Settings) commits ink to the note underneath. The full-screen RN view intercepts capacitive touch only; the EMR pen is a separate input plane that never detached from the note. No SDK API exists to block it (PluginManager surface enumerated, 0.1.43).
 
-**Shipped in this build (all instrumentation + opt-in mitigation; the underlying write-through cannot be prevented from JS):**
+**Direction set by Alex this session:** the acceptable end state is that pen contact on plugin screens produces NO ink anywhere -- settings pages are for selections, writing is canvas-only. An opt-in "close the plugin when writing is detected" stopgap (SNDEV-59 fix option 3) was implemented, then REMOVED on Alex's direction before any on-device test: ejecting the user from the UI doesn't prevent the write and is itself hostile. Option 3 is dead regardless of what the diagnostic shows. Remaining paths: native interception (option 1), detect-and-undo (option 2, last resort), Ratta platform fix (option 4).
 
-1. **`src/utils/viewState.js` (new)** -- tracks "is the plugin view up right now?" + current screen. Open paths: index.js button/config listeners, App mount, App.tsx re-show listeners, gesture `openPluginView()`. Close paths: `closePlugin()`, noteOpener's three intents, App unmount, pen guard. No SDK query exists for view visibility, so unknown system dismiss paths would leave the flag stale-open -- the FINGER diagnostic below is the stale-state canary.
+**Shipped in this build (instrumentation only):**
+
+1. **`src/utils/viewState.js` (new)** -- tracks "is the plugin view up right now?" + current screen. Open paths: index.js button/config listeners, App mount, App.tsx re-show listeners, gesture `openPluginView()`. Close paths: `closePlugin()`, noteOpener's three intents, App unmount. No SDK query exists for view visibility, so unknown system dismiss paths would leave the flag stale-open -- the FINGER diagnostic below is the stale-state canary.
 2. **B-031 diagnostic in `gestureDetector.onMsg`** -- when `isViewOpen()`, events route to `onEventWhileViewOpen()` (never gesture-classified). PEN DOWN/UP log with screen name + stroke shape (move count, max travel, duration); MOVEs sampled every 25th. This answers the open mechanism question from SNDEV-59: does the motion listener receive pen events while the view is up? FINGER DOWNs in that window also log (architecture claim says they can't arrive -- a line here means stale view-state or touch pass-through). Pen events while view open also refresh `_lastPenTime` so the B-028 cooldown stays honest across a close.
-3. **Pen-write guard (option 3 "get out of the way", config-gated `penWriteGuardEnabled`, DEFAULT OFF)** -- on sustained pen movement while the view is open (>= 6 MOVEs and >= 30px travel -- a pen TAP on a UI button must never trigger it), close the plugin view so ink lands on a visible note. 3s refire throttle. Toggle: Settings > Debugging > "Close on pen writing (experimental)". Opt-in per the ambient-trigger principle AND because pen-tap-on-UI behavior is uncharacterized.
-4. **ratta-feedback.md item 9** -- the SDK gap writeup (pen plane never detaches from the note under a plugin view; suggest suspending pen commit while a plugin view shows). Questions renumbered 10/11.
-5. Header architecture comment in gestureDetector.js corrected (touch-only interception).
+3. **ratta-feedback.md item 9** -- the SDK gap writeup (pen plane never detaches from the note under a plugin view; suggest suspending pen commit while a plugin view shows; notes that app-level mitigations were considered and rejected). Questions renumbered 10/11.
+4. Header architecture comment in gestureDetector.js corrected (touch-only interception).
 
-**On-device test plan (drives the fix decision):**
-1. Install, enable debug logging. Open Settings, write on it with the pen. Expect ink on note underneath (known). THE question: do `B-031: PEN ...` lines appear in the log? If YES -> option 3 is viable, and the same log shows stroke shape. If NO -> the listener is dead while the view is up; option 3 is dead; only native interception (option 1) or Ratta remain.
-2. If pen lines appeared: enable "Close on pen writing" in Settings > Debugging, write on a plugin screen -> view should close within ~6 pen MOVEs; verify a pen TAP on a Settings checkbox does NOT close the view.
-3. Characterization while there: which screens reproduce (TaskHome? Capture?); does committed ink land on the page that was open; any `B-031: FINGER DOWN while view believed OPEN` lines (stale view-state canary).
-4. Watch for `ViewState` open/close lines matching reality (esp. after noteOpener jumps and system-level dismissals).
+**On-device test plan (characterization -- shapes the prevention work):**
+1. Install, enable debug logging. Open Settings, write on it with the pen. Do `B-031: PEN ...` lines appear in the log? (Answers whether the listener sees the pen while the view is up -- relevant to option 2's ability to timestamp incidents, and to how much visibility any JS-side component has.)
+2. Which screens reproduce (TaskHome? Capture?); does committed ink land on the page that was open; does it survive page turn/restart.
+3. Any `B-031: FINGER DOWN while view believed OPEN` lines (stale view-state canary); `ViewState` open/close lines matching reality (esp. after noteOpener jumps).
 
-**Not done / next:** option 1 feasibility (native EMR interception from PluginHost -- likely impossible from an app-level process since the fast-ink path is firmware-side, but NoteOpenerModule.kt is the place to probe); decision on default-ON for the guard once pen-tap data exists; capture-screen policy for the guard (unsaved state is lost on auto-close -- acceptable for a stopgap?); file the Ratta item upstream.
+**Not done / next:** option 1 feasibility (native EMR interception from PluginHost -- likely impossible from an app-level process since the fast-ink path is firmware-side, but NoteOpenerModule.kt is the place to probe); option 2 sketch (element-set snapshot on open, diff+remove on close) if option 1 dead-ends; file the Ratta item upstream.
 
 ## SESSION 35 (2026-07-25)
 
