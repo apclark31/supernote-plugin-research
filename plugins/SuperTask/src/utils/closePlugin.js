@@ -1,5 +1,6 @@
 import {PluginManager} from 'sn-plugin-lib';
 import {log} from './debug';
+import {markViewClosed} from './viewState';
 
 /**
  * Close the plugin view.
@@ -10,4 +11,5 @@ import {log} from './debug';
 export function closePlugin() {
   log('App', 'Closing plugin view');
   PluginManager.closePluginView();
+  markViewClosed('closePlugin');
 }

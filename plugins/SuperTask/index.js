@@ -16,6 +16,7 @@ import {name as appName} from './app.json';
 import {PluginManager} from 'sn-plugin-lib';
 import {initGestureDetector} from './src/utils/gestureDetector';
 import {initTaskCache} from './src/cache/taskCache';
+import {markViewOpen} from './src/utils/viewState';
 
 AppRegistry.registerComponent(appName, () => App);
 
@@ -72,6 +73,7 @@ global.__superTaskButtonId = null;
 PluginManager.registerButtonListener({
   onButtonPress: (msg) => {
     global.__superTaskButtonId = msg.id;
+    markViewOpen('button'); // showType 1 buttons open the full-screen view (B-031 tracking)
   },
 });
 
@@ -80,8 +82,10 @@ PluginManager.registerButtonListener({
 PluginManager.registerConfigButtonListener({
   onClick: () => {
     global.__superTaskButtonId = 'config';
+    markViewOpen('config-button');
   },
   onConfigButtonPress: () => {
     global.__superTaskButtonId = 'config';
+    markViewOpen('config-button');
   },
 });

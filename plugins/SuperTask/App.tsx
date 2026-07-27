@@ -22,6 +22,7 @@ import Config from './src/screens/Config';
 import Diagnostics from './src/screens/Diagnostics';
 import {log, logError, getEntries, setListener, exportLog, setDebugMode} from './src/utils/debug';
 import {initGestureDetector, clearLinkCache} from './src/utils/gestureDetector';
+import {markViewOpen, markViewClosed, setCurrentScreen} from './src/utils/viewState';
 import {closePlugin} from './src/utils/closePlugin';
 import {loadConfig} from './src/utils/config';
 import {getTask as getRegistryTask} from './src/utils/taskRegistry';
@@ -169,6 +170,7 @@ function App(): React.JSX.Element {
 
     const initial = global.__superTaskButtonId;
     log('App', `MOUNT -- initial buttonId=${JSON.stringify(initial)} screen=${screenStack[0].name}`);
+    markViewOpen('app-mount'); // App only mounts with the view showing (B-031 tracking)
 
     // Gesture detector is initialized in index.js (before mount) so
     // long-press detection works even on a fresh note view. We still
@@ -188,10 +190,12 @@ function App(): React.JSX.Element {
     const configSub = PluginManager.registerConfigButtonListener({
       onClick: () => {
         log('App', 'CONFIG button pressed (listener)');
+        markViewOpen('config-listener'); // (B-031 tracking)
         resetToRef.current?.('config');
       },
       onConfigButtonPress: () => {
         log('App', 'CONFIG button pressed (listener/legacy)');
+        markViewOpen('config-listener');
         resetToRef.current?.('config');
       },
     });
@@ -201,6 +205,7 @@ function App(): React.JSX.Element {
         const raw = event?.id;
         const id = typeof raw === 'string' ? parseInt(raw, 10) || raw : raw;
         log('App', `BUTTON pressed raw=${JSON.stringify(raw)} id=${id} (listener)`);
+        markViewOpen('button-listener'); // (B-031 tracking)
         clearLinkCache(); // plugin session may change page links (F-027)
         if (id === 200) {
           resetToRef.current?.('capture-lasso');
@@ -214,6 +219,7 @@ function App(): React.JSX.Element {
 
     return () => {
       log('App', 'UNMOUNT -- removing listeners');
+      markViewClosed('app-unmount');
       global.__superTaskNavigate = null;
       if (configSub?.remove) configSub.remove();
       if (buttonSub?.remove) buttonSub.remove();
@@ -225,6 +231,7 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     log('App', `SCREEN changed: "${current.name}" stackDepth=${screenStack.length} params=${current.params ? Object.keys(current.params).join(',') : 'none'}`);
+    setCurrentScreen(current.name); // B-031: names the screen in pen-through-view logs
   }, [screenStack]);
 
   // Show debug log on error or when navigated to

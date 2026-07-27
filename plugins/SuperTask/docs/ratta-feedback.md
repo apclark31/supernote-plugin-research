@@ -100,12 +100,24 @@
 
 **Suggestion:** Either restore the native implementation or remove the method from the TS surface -- a permanently-pending promise is the worst failure mode for plugin authors (see our B-019 experience with hung SDK calls).
 
+### 9. No way to stop pen input from writing into the note under a plugin view
+
+**What we noticed:** While a plugin's full-screen view (`showType: 1`) is open, EMR pen strokes pass through it: the firmware fast-ink path draws the stroke on top of the plugin UI (repainted away on the next refresh), and the NOTE app **commits the stroke to the note underneath**. Confirmed on-device 2026-07-26. The plugin view intercepts capacitive touch, but the pen plane never detaches from the note it covers.
+
+**Why it matters:** Any pen contact while a plugin screen is open silently marks up the user's note. The user briefly sees ink that then vanishes from the screen, so the damage is invisible until they return to the page. For plugins opened mid-writing (capture flows, lasso tools), pen-in-hand contact is the normal case, not the edge case. This is silent data corruption of user notes, caused simply by having a plugin UI open.
+
+**Potential use cases affected:** Every plugin with a full-screen view. Especially capture/annotation plugins the user opens while writing.
+
+**Our workaround (SuperTask):** None that prevents it. We enumerated the full `PluginManager` surface (0.1.43) -- there is no API for pen/touch enablement. Best available mitigation is detecting sustained pen movement via `registerMotionListener` while our view is open and closing the plugin view so the ink at least lands on a visible page.
+
+**Suggestion:** Suspend pen-to-note commit (and ideally the fast-ink overlay) while a plugin view is showing -- the same way capacitive touch is already routed to the plugin. Alternatively, expose an explicit API (`setPenInputEnabled(false)` scoped to the plugin view lifetime), or deliver pen events to the plugin view instead of the note while it is up.
+
 ## Questions
 
-### 9. Element maxX/maxY semantics
+### 10. Element maxX/maxY semantics
 
 Every stroke element returned by `getLassoElements()` on our A5X has identical `maxX` (20967) and `maxY` (15725) values. These appear to be page-level digitizer constants, not per-stroke bounding boxes. Is this correct? If they are page-level constants, documenting that would help plugin developers avoid treating them as stroke bounds.
 
-### 10. Pen type 16
+### 11. Pen type 16
 
 Strokes on our A5X show `penType=16`, which isn't in the documented pen type list (0=Ballpoint, 1=Fountain, 10=Marker, 11=Pencil, 14=Brush). What pen type does 16 represent? Is it specific to newer firmware or a hardware revision?

@@ -66,6 +66,11 @@ const DEFAULT_CONFIG = {
   threeFingerTapEnabled: false,
   // Show completed tasks inline on the Today tab (footer toggle, F-030)
   showDoneTasks: false,
+  // B-031 stopgap: pen strokes pass through the plugin view and commit ink
+  // to the note underneath. When on, sustained pen movement while any plugin
+  // screen is open closes the view so the ink lands somewhere visible.
+  // Opt-in while the mitigation proves itself (and pen-tap UI use stays safe).
+  penWriteGuardEnabled: false,
   // Accessibility text scale: 1 / 1.15 / 1.3 (F-031)
   fontScale: 1,
 };

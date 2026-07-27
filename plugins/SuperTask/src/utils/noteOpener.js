@@ -10,6 +10,7 @@ import {NativeModules} from 'react-native';
 import RNFS from 'react-native-fs';
 import {PluginManager} from 'sn-plugin-lib';
 import {log, logError} from './debug';
+import {markViewClosed} from './viewState';
 
 const {NoteOpener} = NativeModules;
 
@@ -42,7 +43,7 @@ export async function openNote(path, page = 0) {
     log('NoteOpener', `openNote path=${path} page=${page}`);
     await NoteOpener.openNote(path, page);
     // Brief delay so the target activity starts before we remove the plugin overlay
-    setTimeout(() => PluginManager.closePluginView(), 150);
+    setTimeout(() => { PluginManager.closePluginView(); markViewClosed('noteOpener'); }, 150);
     return {success: true};
   } catch (e) {
     logError('NoteOpener', e);
@@ -62,7 +63,7 @@ export async function openFolder(folderPath) {
   try {
     log('NoteOpener', `openFolder path=${folderPath}`);
     await NoteOpener.openFolder(folderPath);
-    setTimeout(() => PluginManager.closePluginView(), 150);
+    setTimeout(() => { PluginManager.closePluginView(); markViewClosed('noteOpener'); }, 150);
     return {success: true};
   } catch (e) {
     logError('NoteOpener', e);
@@ -84,7 +85,7 @@ export async function openDocument(path, page = 0) {
   try {
     log('NoteOpener', `openDocument path=${path} page=${page}`);
     await NoteOpener.openDocument(path, page);
-    setTimeout(() => PluginManager.closePluginView(), 150);
+    setTimeout(() => { PluginManager.closePluginView(); markViewClosed('noteOpener'); }, 150);
     return {success: true};
   } catch (e) {
     logError('NoteOpener', e);
