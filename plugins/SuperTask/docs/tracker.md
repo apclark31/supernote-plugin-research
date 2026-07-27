@@ -1,13 +1,25 @@
 # SuperTask: Features & Bugs Tracker
 
-> Active features, tasks, and bugs for the SuperTask plugin. Each item has a unique ID, type label, status, and optional link to a design doc.
+> # FROZEN -- 2026-07-25
+>
+> **Tracking moved to Jira: [SNDEV](https://alexpnw.atlassian.net/browse/SNDEV), epic `SNDEV-6` (SuperTask).**
+>
+> This file is a historical snapshot as of the import. It is no longer maintained.
+> **Do not read status from it and do not update it.** Statuses below are stale by design.
+>
+> Every item here exists in Jira with its ID preserved as a label, so `F-023` or `B-028`
+> finds it: `project = SNDEV AND labels = "B-028"`. Access is via the `atlassian` MCP server.
+>
+> Two items were deliberately NOT imported:
+> - **T-005** -- its own notes confirm every sub-item is resolved, so it was closed rather than migrated.
+> - The 18 items already marked Done/Resolved -- `docs/changelog.md` is their archive.
+>
+> One item was split: **F-022** became `F-022a` (phase 1, in Testing) and `F-022b` (phases 2-3, To Do).
 >
 > **Related docs:**
 > - Design docs: `docs/design-*.md` -- deep dives on specific features
-> - Changelog: `docs/changelog.md` -- completed/resolved items move here
+> - Changelog: `docs/changelog.md` -- completed/resolved items
 > - Session state: `PROGRESS.md` -- current session handoff notes
->
-> When an item is completed or resolved, move it to `changelog.md` with the date and a one-line summary of the outcome.
 
 ## Features
 

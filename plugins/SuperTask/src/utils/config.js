@@ -19,14 +19,18 @@
 
 import RNFS from 'react-native-fs';
 import {log, setDebugServerUrl} from './debug';
-import {setFontScale} from './fontScale';
+import {setFontScale, normalizeFontScale} from './fontScale';
 
 // Push derived values into consumers that can't import config (cycle-free
 // direction: config -> debug/fontScale). Keeps the debug server URL and the
 // accessibility text scale runtime-editable.
 function withDerived(merged) {
   setDebugServerUrl(merged.debugServerUrl);
-  setFontScale(merged.fontScale || 1);
+  // F-035: snap legacy/out-of-step values (the old 1.15 "Large") onto a
+  // supported step BEFORE anything reads them, so the settings control and the
+  // scale actually applied can never disagree. Persists on the next save.
+  merged.fontScale = normalizeFontScale(merged.fontScale);
+  setFontScale(merged.fontScale);
   return merged;
 }
 

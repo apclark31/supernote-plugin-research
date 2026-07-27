@@ -8,14 +8,55 @@ A monorepo for Supernote plugin SDK research and plugin development. Contains:
 - **Design docs** (`docs/`) -- architecture analysis and plugin design documents
 - **Plugins** (`plugins/`) -- each plugin is a standalone React Native project
 
-### Per-plugin documentation structure
-Each plugin under `plugins/<Name>/` follows this doc architecture:
-- **`PROGRESS.md`** -- session handoff state (what happened, what's next, current build)
-- **`docs/tracker.md`** -- active features and bugs with unique IDs (F-001, B-001)
-- **`docs/changelog.md`** -- archive of completed/resolved items (moved from tracker)
-- **`docs/design-*.md`** -- deep dives on specific features or subsystems
+## Issue tracking: Jira (SNDEV)
 
-When a tracked item is completed, move it from `tracker.md` to `changelog.md` with the date and outcome. Design docs cross-reference each other and the tracker via their headers.
+**Features, bugs, and status live in Jira, not in markdown.** As of 2026-07-25 the active work from both plugin trackers was imported there.
+
+- **Project:** `SNDEV` -- "SuperNote Development" at https://alexpnw.atlassian.net
+- **Access:** the `atlassian` MCP server (user scope, OAuth). If its tools aren't available, the server needs authenticating via `/mcp`; it is configured in `~/.claude.json` at user scope so it applies in every project.
+- **Epics:** `SNDEV-6` = SuperTask, `SNDEV-7` = SuperHub. Every issue is parented to one of them.
+
+### Conventions
+
+| Old tracker | Jira |
+|---|---|
+| `F-001` feature | issue type **Feature**, label `F-001` |
+| `B-001` bug | issue type **Bug**, label `B-001` |
+| `T-001` task | issue type **Task**, label `T-001` |
+| plugin | label `SuperTask` or `SuperHub` |
+
+**The original IDs are preserved as labels.** Design docs, PROGRESS files, and issue descriptions still cross-reference each other by `F-023` / `B-028`, so those references resolve by label search rather than by Jira key.
+
+### Board statuses
+
+`To Do` -> `In Progress` -> `Testing` -> `Done`
+
+**`Testing` means implemented but NOT yet confirmed on-device.** This is the column that matters here: the plugin cannot be verified without a build-copy-install-test cycle, so work sits in Testing until a real device confirms it. Never move something to Done off a code reading. See "Don't mark bugs fixed before testing" in the development practices below.
+
+### Finding things
+
+Ask via the MCP server in plain language, or use JQL directly:
+
+```
+project = SNDEV AND status = Testing                  # the on-device test queue
+project = SNDEV AND labels = SuperHub                 # everything for one plugin
+project = SNDEV AND labels = "B-028"                  # look up an item by its old tracker ID
+project = SNDEV AND issuetype = Bug AND status != Done
+```
+
+### What still belongs in markdown
+
+Jira owns **what and why**: scope, priority, status, user feedback. The repo owns **how**:
+
+- **`PROGRESS.md`** -- session handoff state (what happened, what's next, current build)
+- **`docs/design-*.md`** -- deep dives on specific features or subsystems
+- **`docs/changelog.md`** -- archive of completed/resolved items
+- **`docs/tracker.md`** -- **FROZEN as of the 2026-07-25 import.** Kept for historical reference and for working offline. It is NOT maintained; do not update it and do not read status from it. Jira is authoritative for anything to do with state.
+
+When you finish work, update the Jira issue. When you finish a session, update `PROGRESS.md`. When a design decision gets made, put it in the design doc and link the Jira key.
+
+### Per-plugin documentation structure
+Each plugin under `plugins/<Name>/` carries its own `PROGRESS.md`, `docs/changelog.md`, `docs/design-*.md`, and the frozen `docs/tracker.md`. Design docs cross-reference each other, and now Jira issues, via their headers.
 
 ## Plugin development practices
 
@@ -26,7 +67,7 @@ When a tracked item is completed, move it from `tracker.md` to `changelog.md` wi
 
 ### Plugin architecture
 - **React Native 0.79.2 + React 19.0.0** -- locked versions, do not upgrade
-- **sn-plugin-lib ^0.1.19** -- Supernote SDK bridge, the only way to talk to the device
+- **sn-plugin-lib** -- Supernote SDK bridge, the only way to talk to the device. Versions have diverged: SuperTask is on `^0.1.43`, while `template/` and SuperHub are still on `^0.1.19`. Check the plugin's own `package.json` before assuming an API exists.
 - **Build output** -- `buildPlugin.sh` produces a `.snplg` file (zip of Hermes bytecode + assets + PluginConfig.json)
 - **No native modules needed for pure JS plugins** -- build skips Gradle entirely, runs in under a minute
 - **Install on device** -- copy `.snplg` to MyStyle/, then Settings > Apps > Plugins > Install

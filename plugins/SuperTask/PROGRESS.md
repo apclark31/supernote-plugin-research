@@ -2,6 +2,13 @@
 
 Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.md`
 
+> **Issues are tracked in Jira: [SNDEV](https://alexpnw.atlassian.net/browse/SNDEV), epic `SNDEV-6`.**
+> This file remains the session handoff record. Feature and bug STATUS lives in Jira.
+> The on-device test checklist below corresponds to the `Testing` column:
+> `project = SNDEV AND labels = SuperTask AND status = Testing`.
+> Look any item up by its old ID, e.g. `project = SNDEV AND labels = "B-029"`.
+> `docs/tracker.md` is frozen as of 2026-07-25 and no longer reflects reality.
+
 ## Status
 
 **Session 35 in progress -- first on-device testing of the v0.3.0 RC surfaced and resolved two bugs; QoL smoothness pass shipped. Current .snplg (session 35) supersedes the 22:27 session-34 RC. Release still gated on finishing the session-34 checklist below.**

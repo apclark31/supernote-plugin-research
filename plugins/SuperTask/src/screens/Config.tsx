@@ -27,6 +27,7 @@ import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
 import {reloadGestureConfig} from '../utils/gestureDetector';
 import {importTokenFromFile} from '../utils/tokenImport';
+import {FONT_SCALE_STEPS} from '../utils/fontScale';
 import {
   Section,
   SettingRow,
@@ -63,10 +64,17 @@ const POST_CREATE_OPTIONS = [
 
 const FONT_SIZE_OPTIONS = [24, 28, 32, 36, 40].map(n => ({key: n, label: String(n)}));
 
-const TEXT_SCALE_OPTIONS = [
-  {key: 1, label: 'Default'},
-  {key: 1.15, label: 'Large'},
-  {key: 1.3, label: 'Extra Large'},
+// F-035: a relative measure (Windows-style display scaling), not abstract
+// Default/Large/Extra Large. Keys stay multipliers -- see fontScale.js.
+const TEXT_SCALE_OPTIONS = FONT_SCALE_STEPS.map(n => ({
+  key: n,
+  label: `${Math.round(n * 100)}%`,
+}));
+
+// F-034: the General/Setup page split lives in the header row.
+const PAGE_OPTIONS: Array<{key: 'general' | 'setup'; label: string}> = [
+  {key: 'general', label: 'General'},
+  {key: 'setup', label: 'Setup'},
 ];
 
 // Collapse legacy lasso-gesture values to the three valid keys (matches the
@@ -321,13 +329,21 @@ export default function Config({onNavigate, nav}: Props) {
 
   return (
     <View style={s.wrapper}>
+      {/* F-034: title + page switcher share the header row. The page split is
+          by frequency of use (short scrolls on e-ink); promoting it here buys
+          the sections back a whole fixed band of vertical space. */}
       <View style={s.header}>
-        <Text style={s.title}>Settings</Text>
+        <View style={s.headerLeft}>
+          <Text style={s.title}>Settings</Text>
+          <View style={s.pageSwitch}>
+            <Segmented options={PAGE_OPTIONS} value={page} onChange={setPage} />
+          </View>
+        </View>
         <View style={s.headerRight}>
           {saveFailed ? (
-            <Text style={s.headerFail}>Session only — device write failed</Text>
+            <Text style={s.headerFail} numberOfLines={1}>Session only — device write failed</Text>
           ) : lastSaved ? (
-            <Text style={s.headerSaved}>Saved {lastSaved} ✓</Text>
+            <Text style={s.headerSaved} numberOfLines={1}>Saved {lastSaved} ✓</Text>
           ) : null}
           {nav?.canGoBack ? (
             <Pressable style={s.headerBtn} onPress={() => nav.pop()}>
@@ -339,20 +355,6 @@ export default function Config({onNavigate, nav}: Props) {
             </Pressable>
           )}
         </View>
-      </View>
-
-      {/* Page split by frequency of use (short scrolls on e-ink) */}
-      <View style={s.tabBar}>
-        <Pressable
-          style={[s.tab, page === 'general' && s.tabActive]}
-          onPress={() => setPage('general')}>
-          <Text style={[s.tabText, page === 'general' && s.tabTextActive]}>General</Text>
-        </Pressable>
-        <Pressable
-          style={[s.tab, page === 'setup' && s.tabActive]}
-          onPress={() => setPage('setup')}>
-          <Text style={[s.tabText, page === 'setup' && s.tabTextActive]}>Setup</Text>
-        </Pressable>
       </View>
 
       <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} keyboardShouldPersistTaps="handled">
@@ -675,6 +677,21 @@ const s = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 2,
     borderBottomColor: '#000000',
+    gap: 16,
+  },
+  // F-034: title + page switcher. Never shrinks -- if the row gets tight at a
+  // large text scale, the save status truncates instead (it is transient and
+  // secondary; the switcher is a primary control and must stay tappable).
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    flexShrink: 0,
+  },
+  // Segmented cells carry marginBottom:-2 to collapse doubled borders when a
+  // long set wraps. In this single-row use that would hang the group 2px low.
+  pageSwitch: {
+    marginBottom: 2,
   },
   title: {
     fontSize: 22,
@@ -684,18 +701,22 @@ const s = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 14,
+    flexShrink: 1,
   },
   headerSaved: {
     fontSize: 14,
     fontWeight: '600',
     color: '#000000',
+    flexShrink: 1,
   },
   headerFail: {
     fontSize: 14,
     fontWeight: '700',
     color: '#000000',
     textDecorationLine: 'underline',
+    flexShrink: 1,
   },
   headerBtn: {
     borderWidth: 2,
@@ -709,31 +730,8 @@ const s = StyleSheet.create({
     fontWeight: '700',
     color: '#000000',
   },
-  tabBar: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    gap: 0,
-  },
-  tab: {
-    borderWidth: 2,
-    borderColor: '#000000',
-    paddingVertical: 10,
-    paddingHorizontal: 28,
-    marginRight: -2,
-    backgroundColor: '#ffffff',
-  },
-  tabActive: {
-    backgroundColor: '#000000',
-  },
-  tabText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#000000',
-  },
-  tabTextActive: {
-    color: '#ffffff',
-  },
+  // (F-034 removed tabBar/tab/tabActive/tabText/tabTextActive -- the page
+  // switcher now renders through the shared Segmented primitive.)
   scroll: {
     flex: 1,
   },

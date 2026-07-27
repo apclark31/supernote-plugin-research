@@ -1,8 +1,19 @@
 # SuperHub: Features & Bugs Tracker
 
-> Active features, tasks, and bugs for the SuperHub plugin. Same conventions as
-> SuperTask's tracker: unique IDs, status, design-doc links; completed items move
-> to `changelog.md` with date and outcome.
+> # FROZEN -- 2026-07-25
+>
+> **Tracking moved to Jira: [SNDEV](https://alexpnw.atlassian.net/browse/SNDEV), epic `SNDEV-7` (SuperHub).**
+>
+> This file is a historical snapshot as of the import. It is no longer maintained.
+> **Do not read status from it and do not update it.**
+>
+> Note that this tracker only ever held F-001. The rest of SuperHub's backlog lived in
+> `PROGRESS.md` (the "Feedback for next session" and "Phase 2" sections) and never made it
+> here. All of it is now in Jira under `SNDEV-7`, with new IDs assigned at import:
+> `B-001` double-tap launch, `F-002` tappable breadcrumb, `F-003` column layout,
+> `T-001` config.local.js, `F-004` template picker, `F-005` naming/routing, `F-006` headless quick page.
+>
+> Find any of them by label: `project = SNDEV AND labels = "F-002"`.
 
 ## Features
 
