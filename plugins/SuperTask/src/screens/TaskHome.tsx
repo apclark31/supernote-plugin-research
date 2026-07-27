@@ -21,7 +21,8 @@ import {noteLabel} from '../utils/noteLabel';
 import {saveConfig} from '../utils/config';
 import {useFontScale} from '../utils/useFontScale';
 import {Check} from '../components/settings';
-import {loadConfig, getCachedConfig} from '../utils/config';
+import {loadConfig, getCachedConfig, resolveDefaultTab} from '../utils/config';
+import {getSessionTab, setSessionTab} from '../utils/viewState';
 import {completeTask, reopenTask, getCompletedTasks} from '../api/todoist';
 import {getCache, fetchTaskData, invalidateCache, initTaskCache} from '../cache/taskCache';
 import {log, logError} from '../utils/debug';
@@ -66,13 +67,23 @@ export default function TaskHome({nav, focusTab}: Props) {
   const [tasks, setTasks] = useState<any[]>([]);
   const [projectMap, setProjectMap] = useState<ProjectMap>({});
   const [projectList, setProjectList] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState(() =>
-    focusTab && TAB_KEYS.includes(focusTab)
-      ? focusTab
-      : cfg0?.defaultTab && TAB_KEYS.includes(cfg0.defaultTab)
-        ? cfg0.defaultTab
-        : 'today',
-  );
+  // Tab resolution (F-038): session memory > deep-link focusTab > configured
+  // default ('last' resolves to the persisted lastOpenedTab). Session memory
+  // is the tab the user was on before another screen pushed over TaskHome;
+  // it outranks focusTab because the nav-stack entry keeps its original
+  // focusTab param across pop-remounts, and a mid-session tab switch must
+  // survive viewing a task. Fresh deep-link opens are unaffected: the session
+  // tab is cleared whenever the plugin view closes.
+  const [activeTab, setActiveTab] = useState(() => {
+    const sessionTab = getSessionTab();
+    const resolved =
+      sessionTab && TAB_KEYS.includes(sessionTab)
+        ? sessionTab
+        : focusTab && TAB_KEYS.includes(focusTab)
+          ? focusTab
+          : resolveDefaultTab(cfg0);
+    return TAB_KEYS.includes(resolved) ? resolved : 'today';
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [jumpError, setJumpError] = useState('');
@@ -102,9 +113,11 @@ export default function TaskHome({nav, focusTab}: Props) {
     // initial state, and every setter bails without a re-render (primitives
     // compare equal; the array setter returns prev on deep-equality).
     loadConfig().then(config => {
-      // An explicit deep-link focusTab wins over the config default
-      if (!focusTab && config.defaultTab && TAB_KEYS.includes(config.defaultTab)) {
-        setActiveTab(config.defaultTab);
+      // Cold-start default-tab corrector. A deep-link focusTab or live
+      // session tab wins over the config default (F-038).
+      if (!focusTab && !getSessionTab()) {
+        const resolved = resolveDefaultTab(config);
+        if (TAB_KEYS.includes(resolved)) setActiveTab(resolved);
       }
       if (config.enabledProjectIds?.length > 0) {
         setEnabledProjectIds(prev =>
@@ -838,7 +851,14 @@ export default function TaskHome({nav, focusTab}: Props) {
         </View>
       </View>
 
-      <TabBar tabs={TABS} activeTab={activeTab} onTabChange={(tab) => { log('TaskHome', `TAB changed: ${tab}`); setActiveTab(tab); }} />
+      <TabBar tabs={TABS} activeTab={activeTab} onTabChange={(tab) => {
+        log('TaskHome', `TAB changed: ${tab}`);
+        setActiveTab(tab);
+        // F-038: remember within the session (survives push/pop remounts)
+        // and persist for the 'last' default across close/reopen.
+        setSessionTab(tab);
+        saveConfig({lastOpenedTab: tab}).catch(() => {});
+      }} />
 
       {jumpError ? (
         <View style={styles.jumpError}>

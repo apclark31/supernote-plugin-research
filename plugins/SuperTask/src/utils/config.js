@@ -49,7 +49,12 @@ const DEFAULT_CONFIG = {
   defaultProjectId: null,
   defaultPriority: 1,
   enabledProjectIds: [],
-  defaultTab: 'today',
+  // 'last' resolves to lastOpenedTab (F-038). Existing installs keep their
+  // saved explicit tab; only fresh configs get the remember-where-I-was default.
+  defaultTab: 'last',
+  // Hidden (no UI row): the TaskHome tab the user was last on, persisted on
+  // every tab switch so 'last' survives process restarts.
+  lastOpenedTab: 'today',
   postCreateAction: 'prompt',
   debugMode: false,
   markAsTextFontSize: 32,
@@ -342,6 +347,17 @@ export async function loadConfig() {
  * on any warm open the cache is already populated. Callers must still
  * loadConfig() async as the cold-start fallback.
  */
+/**
+ * Resolve the configured default tab to a concrete TaskHome tab key (F-038).
+ * 'last' means "wherever the user was when they last closed SuperTask",
+ * tracked in the hidden lastOpenedTab key.
+ */
+export function resolveDefaultTab(config) {
+  const tab = config?.defaultTab || 'last';
+  if (tab === 'last') return config?.lastOpenedTab || 'today';
+  return tab;
+}
+
 export function getCachedConfig() {
   if (!_runtimeConfig) return null;
   return {...DEFAULT_CONFIG, ...bundledConfig, ..._runtimeConfig};

@@ -13,6 +13,17 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 **Session 37 (2026-07-26) -- B-031 diagnostic build; issue then reframed. The pen write-through could NOT be reproduced later the same day: pen input on Settings now scrolls the menu correctly (same on SuperHub + sticker plugin), so the incident was one-off, state-dependent pen routing at the platform level. SNDEV-59 downgraded Highest -> High, back to To Do as a watch item, NO LONGER a v0.3.0 blocker. Current .snplg (session 37, 20:35) keeps the diagnostics armed (view-state tracking + pen-through-view logging into the always-on session log) so a recurrence self-documents. Release gated on the session-34 checklist below only.**
 
+## SESSION 38 (2026-07-27) -- workflow feedback: tab memory, settings regression, info sheet
+
+Alex installed the session-37 diagnostic build and fed back four workflow items while testing. New .snplg built 10:47.
+
+1. **F-038 / SNDEV-60 (implemented -> Testing): tab session memory + "Last opened" default.** TaskHome unmounted on every push (view task) and remounted on pop reading config.defaultTab -- jarring snap mid-workflow. Now: `viewState.js` keeps a session tab (set on tab switch, cleared when the plugin view closes); TaskHome restores it on remount, and it OUTRANKS the deep-link focusTab param (nav-stack entries keep their original focusTab across pops, which would otherwise clobber a mid-session switch; fresh deep links are safe because close clears session state). New "Last opened" option (first in Settings > Opening SuperTask > Default tab, now the DEFAULT_CONFIG default) resolves via `resolveDefaultTab()` to the hidden `lastOpenedTab` key persisted on every tab switch. Gesture opens resolve it too. Existing installs keep their saved tab choice.
+2. **B-032 / SNDEV-61 (To Do): Settings entry gone from the device plugin menu.** Regression per Alex; Settings must be reachable from both the plugin menu and TaskHome. Code investigation: `registerConfigButton()` in index.js:66 is intact and unchanged since scaffold -- no code diff explains it. Leading hypothesis is the known upgrade-in-place caching (session 26); first test is full uninstall -> reboot -> fresh install. Fallback: session.log init lines, then instrument registerConfigButton.
+3. **F-028 / SNDEV-28 (partial): "After creating a task" (?) info sheet** shipped ahead of the batch -- explains Ask (Add Another / View Task / Done) vs Go back with when-to-use guidance.
+4. **F-039 / SNDEV-62 (backlog, Low): Todoist comments in TaskDetail** -- view/add comments so task status metadata is available on-device. Sketched in the ticket (v1 comments endpoint, lazy per-task fetch, not in main cache).
+
+**On-device test (this build):** Today -> open task -> back stays on Today; tab choice survives close/reopen with "Last opened"; explicit default still resets on close/reopen; deep links land correctly and survive the switch-tab-then-view-task flow; (?) on After creating a task shows the sheet; B-032: full uninstall/reinstall then check the plugin menu for Settings.
+
 ## SESSION 37 (2026-07-26) -- B-031 pen write-through: diagnostic; stopgap built then removed
 
 **Context:** SNDEV-59 / B-031, reported+confirmed session 36: writing with the pen while any plugin screen is open (seen on Settings) commits ink to the note underneath. The full-screen RN view intercepts capacitive touch only; the EMR pen is a separate input plane that never detached from the note. No SDK API exists to block it (PluginManager surface enumerated, 0.1.43).

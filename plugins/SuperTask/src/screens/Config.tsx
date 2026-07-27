@@ -45,6 +45,7 @@ type Props = {
 };
 
 const TAB_OPTIONS = [
+  {key: 'last', label: 'Last opened'}, // F-038: default -- reopen where the user left off
   {key: 'today', label: 'Today'},
   {key: 'upcoming', label: 'Upcoming'},
   {key: 'projects', label: 'Projects'},
@@ -108,7 +109,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [projects, setProjects] = useState<any[]>([]);
 
   // Settings values
-  const [defaultTab, setDefaultTab] = useState(cfg0?.defaultTab || 'today');
+  const [defaultTab, setDefaultTab] = useState(cfg0?.defaultTab || 'last');
   const [bezelSwipeEnabled, setBezelSwipeEnabled] = useState(cfg0?.bezelSwipeEnabled === true);
   const [threeFingerTapEnabled, setThreeFingerTapEnabled] = useState(cfg0?.threeFingerTapEnabled === true);
   const [lassoGestureInput, setLassoGestureInput] = useState(normalizeLassoInput(cfg0?.lassoGestureInput));
@@ -128,7 +129,7 @@ export default function Config({onNavigate, nav}: Props) {
   const savedTimer = useRef<any>(null);
 
   // Info sheets + transient statuses
-  const [infoSheet, setInfoSheet] = useState<'token' | 'gesture' | 'server' | null>(null);
+  const [infoSheet, setInfoSheet] = useState<'token' | 'gesture' | 'server' | 'postCreate' | null>(null);
   const [pingStatus, setPingStatus] = useState('');
 
   useEffect(() => {
@@ -439,7 +440,10 @@ export default function Config({onNavigate, nav}: Props) {
         {page === 'general' && (
         <>
         <Section title="OPENING SUPERTASK" first>
-          <SettingRow label="Default tab" saved={savedRow === 'defaultTab'}>
+          <SettingRow
+            label="Default tab"
+            hint="Where SuperTask lands on a fresh open. Last opened returns to whatever tab you were on when you closed it."
+            saved={savedRow === 'defaultTab'}>
             <Segmented
               options={TAB_OPTIONS}
               value={defaultTab}
@@ -510,7 +514,10 @@ export default function Config({onNavigate, nav}: Props) {
             />
           </SettingRow>
 
-          <SettingRow label="After creating a task" saved={savedRow === 'postCreate'}>
+          <SettingRow
+            label="After creating a task"
+            onInfo={() => setInfoSheet('postCreate')}
+            saved={savedRow === 'postCreate'}>
             <Segmented
               options={POST_CREATE_OPTIONS}
               value={postCreateAction}
@@ -644,6 +651,17 @@ export default function Config({onNavigate, nav}: Props) {
         sections={[
           {label: 'Finger lasso', body: "Hold one finger on the page for about half a second, then drag to draw a selection area. When you lift your finger, the selected content is sent to Quick Add.\n\nThe selection is invisible while you draw -- you won't see the lasso outline. Best for quickly grabbing a rough area of handwriting."},
           {label: 'Pen lasso', body: "Hold one finger on the screen, then use your pen to draw a lasso selection as you normally would. You'll see the native lasso outline as you draw. When you lift your finger, the selected content is sent to Quick Add.\n\nThis gives you the visible lasso feedback you're used to, with the speed of skipping the toolbar button."},
+        ]}
+        onClose={() => setInfoSheet(null)}
+      />
+
+      <InfoSheet
+        visible={infoSheet === 'postCreate'}
+        title="After creating a task"
+        intro="Controls what the task form does right after a task is created -- whether you got there from a lasso capture, the Quick Add gesture, or the + New button."
+        sections={[
+          {label: 'Ask (Add / Done)', body: 'After the task is created, the form stays open with three choices:\n\nAdd Another -- clear the form and capture the next task (keeps the note context).\nView Task -- open the new task’s details.\nDone -- finish and close.\n\nBest when you tend to capture several tasks in one sitting.'},
+          {label: 'Go back', body: 'Skips the prompt. About half a second after the task is created you are returned to wherever you came from -- the note or the previous screen.\n\nBest when you usually capture one task at a time and want the fewest taps.'},
         ]}
         onClose={() => setInfoSheet(null)}
       />

@@ -25,6 +25,7 @@ import {log} from './debug';
 
 let _viewOpen = false;
 let _currentScreen = null;
+let _sessionTab = null;
 
 export function markViewOpen(source) {
   if (!_viewOpen) log('ViewState', `view OPEN (${source})`);
@@ -34,6 +35,21 @@ export function markViewOpen(source) {
 export function markViewClosed(source) {
   if (_viewOpen) log('ViewState', `view CLOSED (${source})`);
   _viewOpen = false;
+  _sessionTab = null; // next open honors the configured default tab (F-038)
+}
+
+/**
+ * Session tab memory (F-038): the TaskHome tab the user is currently on.
+ * TaskHome unmounts whenever another screen pushes over it, so without this
+ * a pop back would snap to the configured default mid-workflow. Survives
+ * remounts, cleared when the plugin view closes.
+ */
+export function setSessionTab(tab) {
+  _sessionTab = tab;
+}
+
+export function getSessionTab() {
+  return _sessionTab;
 }
 
 export function setCurrentScreen(name) {

@@ -76,7 +76,7 @@
 
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {log} from './debug';
-import {loadConfig} from './config';
+import {loadConfig, resolveDefaultTab} from './config';
 import {fetchTaskData} from '../cache/taskCache';
 import {isViewOpen, getCurrentScreen, markViewOpen} from './viewState';
 
@@ -692,7 +692,7 @@ async function openTaskHome(trigger) {
 
   try {
     const config = await loadConfig();
-    const focusTab = config.defaultTab || 'today';
+    const focusTab = resolveDefaultTab(config); // 'last' -> persisted tab (F-038)
     log('Gesture', `${trigger} -> tab: ${focusTab}`);
     // Prefetch task data while React mounts (fire-and-forget)
     fetchTaskData().catch(() => {});
