@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
-import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask, markCompleted} from '../utils/taskRegistry';
+import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask, markCompleted, getTask as getRegistryTask} from '../utils/taskRegistry';
 import {openNote} from '../utils/noteOpener';
 import {healRenamedNotes} from '../utils/noteHeal';
 import {noteLabel} from '../utils/noteLabel';
@@ -361,6 +361,11 @@ export default function TaskHome({nav, focusTab}: Props) {
   // geometry). Selection clears on tab switch and refresh.
   const sel = useTaskSelection('TaskHome', {
     onCompleted: ids => {
+      // Local mutation: reset the repaint fingerprint, or a later fetch
+      // returning byte-identical data would be skipped and never restore
+      // the pruned rows (applyData's "safe direction" assumption breaks
+      // the moment a mutation is undone).
+      dataFp.current = '';
       // Completed rows leave EVERY surface immediately -- active lists AND
       // the registry-backed Device tab / This Note band. The undo bar is
       // the only remaining trace of the action.
@@ -372,8 +377,13 @@ export default function TaskHome({nav, focusTab}: Props) {
       ids.forEach(id => markCompleted(id).catch(() => {}));
       invalidateCache();
     },
-    onUndone: ids => {
-      ids.forEach(id => markCompleted(id, false).catch(() => {}));
+    onUndone: async ids => {
+      dataFp.current = '';
+      // Un-flag BEFORE re-reading: registry writes are serialized, and a
+      // parallel read returns the still-flagged entry, which the renders
+      // now filter out -- the undone task never reappeared on the Device
+      // tab / This Note band (seen on device 2026-08-15).
+      await Promise.all(ids.map(id => markCompleted(id, false).catch(() => {})));
       // Restore the registry-backed surfaces from storage (entries were
       // only flagged, not removed), then pull active lists back in.
       getAllRegistryTasks().then(setDeviceTasks).catch(() => {});
@@ -388,7 +398,7 @@ export default function TaskHome({nav, focusTab}: Props) {
 
   // Jump straight into a note at a task's page. Registry pages are 0-based,
   // the intent is 1-based; openNote() closes the plugin view itself.
-  const handleOpenNote = (path: string, pageNum0?: number) => {
+  const handleOpenNote = (path: string, pageNum0?: number, taskId?: string) => {
     const intentPage = (pageNum0 ?? -1) + 1; // unknown page -> 0 = last-used
     // sameNote jumps re-target the editor instance already running under the
     // plugin overlay -- a suspect for ignored page extras (cross-note was the
@@ -396,14 +406,33 @@ export default function TaskHome({nav, focusTab}: Props) {
     const sameNote = noteCtx?.filePath === path;
     log('TaskHome', `OPEN NOTE: ${path} page0=${pageNum0 ?? 'unknown'} intent=${intentPage} sameNote=${sameNote} currentPage=${noteCtx?.pageNum ?? 'n/a'}`);
     setJumpError('');
-    openNote(path, intentPage).then(result => {
-      if (!result.success) {
-        log('TaskHome', `openNote failed: ${result.error}`);
-        // Failure leaves the plugin view open, so timers run and the
-        // banner reliably clears
-        setJumpError(result.error || 'Could not open note');
-        setTimeout(() => setJumpError(''), 6000);
+    openNote(path, intentPage).then(async result => {
+      if (result.success) return;
+      log('TaskHome', `openNote failed: ${result.error}`);
+      // A missing file usually means the note was just renamed and the heal
+      // probe is still in flight (it takes seconds -- one getElements per
+      // candidate; seen racing a tap on device 2026-08-15). Join the heal,
+      // re-read the registry path, and retry once before giving up.
+      if (taskId && /not found/i.test(result.error || '')) {
+        setJumpError('Note not found -- checking for a rename...');
+        try {
+          const healed = await healRenamedNotes(tasks);
+          const entry = await getRegistryTask(taskId);
+          if (entry?.notePath && entry.notePath !== path) {
+            log('TaskHome', `OPEN NOTE retry after heal (${healed} healed): ${entry.notePath}`);
+            setJumpError('');
+            const retry = await openNote(entry.notePath, (entry.pageNum ?? (pageNum0 ?? -1)) + 1);
+            if (retry.success) return;
+            log('TaskHome', `openNote retry failed: ${retry.error}`);
+          }
+        } catch (e: any) {
+          log('TaskHome', `Heal-retry failed: ${e.message}`);
+        }
       }
+      // Failure leaves the plugin view open, so timers run and the
+      // banner reliably clears
+      setJumpError(result.error || 'Could not open note');
+      setTimeout(() => setJumpError(''), 6000);
     });
   };
 
@@ -492,7 +521,7 @@ export default function TaskHome({nav, focusTab}: Props) {
               // already looking at the current one
               onOpenNote={
                 noteCtx && pageNum !== undefined && pageNum !== noteCtx.pageNum
-                  ? () => handleOpenNote(noteCtx.filePath, pageNum)
+                  ? () => handleOpenNote(noteCtx.filePath, pageNum, task.id)
                   : undefined
               }
             />
@@ -827,7 +856,7 @@ export default function TaskHome({nav, focusTab}: Props) {
               pageNum={item.pageNum}
               onOpenNote={
                 item.openPath
-                  ? () => handleOpenNote(item.openPath, item.pageNum)
+                  ? () => handleOpenNote(item.openPath, item.pageNum, item.task.id)
                   : undefined
               }
             />

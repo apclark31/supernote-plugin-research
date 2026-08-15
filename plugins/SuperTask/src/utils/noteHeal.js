@@ -36,20 +36,23 @@ import {getAllTasks, updateTaskNote} from './taskRegistry';
 import {updateTask} from '../api/todoist';
 import {recycleElements} from './ocr';
 
-let _running = false;
+let _inflight = null;
 
 /**
  * @param {Array} apiTasks - active Todoist tasks (for description patching)
  * @returns {Promise<number>} count of registry entries healed
+ *
+ * Concurrent callers JOIN the in-flight run instead of being dropped: a
+ * failed note-jump awaits the heal that may already be probing (the probe
+ * takes seconds -- one getElements marshal per candidate) and retries when
+ * it lands, rather than racing it.
  */
-export async function healRenamedNotes(apiTasks) {
-  if (_running) return 0;
-  _running = true;
-  try {
-    return await runHeal(apiTasks);
-  } finally {
-    _running = false;
-  }
+export function healRenamedNotes(apiTasks) {
+  if (_inflight) return _inflight;
+  _inflight = runHeal(apiTasks).finally(() => {
+    _inflight = null;
+  });
+  return _inflight;
 }
 
 async function runHeal(apiTasks) {
