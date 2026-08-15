@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
-import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask} from '../utils/taskRegistry';
+import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask, markCompleted} from '../utils/taskRegistry';
 import {openNote} from '../utils/noteOpener';
 import {healRenamedNotes} from '../utils/noteHeal';
 import {noteLabel} from '../utils/noteLabel';
@@ -361,10 +361,25 @@ export default function TaskHome({nav, focusTab}: Props) {
   // geometry). Selection clears on tab switch and refresh.
   const sel = useTaskSelection('TaskHome', {
     onCompleted: ids => {
+      // Completed rows leave EVERY surface immediately -- active lists AND
+      // the registry-backed Device tab / This Note band. The undo bar is
+      // the only remaining trace of the action.
       setTasks(prev => prev.filter(t => !ids.includes(t.id)));
+      setDeviceTasks(prev => prev.filter(t => !ids.includes(t.id)));
+      setRegistryNoteTasks(prev => prev.filter(t => !ids.includes(t.id)));
+      // Flag (not remove) in the registry, so the note back-reference
+      // survives an immediate Undo; reconcile prunes at the next fetch.
+      ids.forEach(id => markCompleted(id).catch(() => {}));
       invalidateCache();
     },
-    onUndone: () => {
+    onUndone: ids => {
+      ids.forEach(id => markCompleted(id, false).catch(() => {}));
+      // Restore the registry-backed surfaces from storage (entries were
+      // only flagged, not removed), then pull active lists back in.
+      getAllRegistryTasks().then(setDeviceTasks).catch(() => {});
+      if (noteCtx?.fileName) {
+        getTasksForNote(noteCtx.fileName).then(setRegistryNoteTasks).catch(() => {});
+      }
       invalidateCache();
       fetchData(true); // pull the reopened tasks back into the active lists
     },
@@ -439,6 +454,7 @@ export default function TaskHome({nav, focusTab}: Props) {
 
     // 3. Registry entries for this note (carry pageNum; cover pending-sync tasks)
     for (const rt of registryNoteTasks) {
+      if (rt.completed) continue; // flagged done, awaiting reconcile prune
       if (!seen.has(rt.id)) {
         seen.add(rt.id);
         const full = tasks.find(t => t.id === rt.id);
@@ -760,6 +776,7 @@ export default function TaskHome({nav, focusTab}: Props) {
     // WHERE the note lives, not just its name.
     const byNote: Record<string, {label: string; entries: any[]}> = {};
     for (const dt of deviceTasks) {
+      if (dt.completed) continue; // flagged done, awaiting reconcile prune
       const key = dt.notePath || dt.noteFile || 'Unknown';
       if (!byNote[key]) {
         byNote[key] = {label: noteLabel(dt.notePath, dt.noteFile), entries: []};

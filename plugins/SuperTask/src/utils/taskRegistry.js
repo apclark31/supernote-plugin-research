@@ -136,15 +136,17 @@ export async function getTasksForNote(noteFile) {
 }
 
 /**
- * Mark a task as completed in the registry.
+ * Mark a task as completed (or un-completed, for Undo) in the registry.
+ * The entry is kept -- reconcile prunes it once Todoist confirms -- so the
+ * note back-reference survives an immediate Undo.
  */
-export function markCompleted(taskId) {
+export function markCompleted(taskId, completed = true) {
   return serialize(async () => {
     const registry = await read();
     if (registry.tasks[taskId]) {
-      registry.tasks[taskId].completed = true;
+      registry.tasks[taskId].completed = completed;
       await write(registry);
-      log('Registry', `Marked completed: ${taskId}`);
+      log('Registry', `Marked ${completed ? 'completed' : 'reopened'}: ${taskId}`);
     }
   });
 }

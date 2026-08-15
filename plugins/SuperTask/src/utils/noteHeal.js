@@ -19,10 +19,15 @@
  * Also backfills notePath for legacy entries from the Todoist description
  * back-reference (full path stored there since before the registry kept it).
  *
- * Runs at most once per plugin session (fire-and-forget from TaskHome after
- * data load). Holds no locks; every step degrades to a logged skip. Legacy
- * entries with neither notePath nor a description path are skipped --
- * nothing to check against.
+ * Runs on every TaskHome data load (fire-and-forget). The steady-state cost
+ * is one exists() per distinct notePath -- cheap native calls; the expensive
+ * directory probe only triggers for a path that is actually missing. It used
+ * to run once per SESSION, but the plugin process outlives view close/reopen
+ * (the B-031 finding), so a rename made mid-session was never detected until
+ * the process died. Only concurrent overlap is guarded now.
+ * Holds no locks; every step degrades to a logged skip. Legacy entries with
+ * neither notePath nor a description path are skipped -- nothing to check
+ * against.
  */
 
 import {PluginFileAPI, FileUtils} from 'sn-plugin-lib';
@@ -31,20 +36,23 @@ import {getAllTasks, updateTaskNote} from './taskRegistry';
 import {updateTask} from '../api/todoist';
 import {recycleElements} from './ocr';
 
-let _ranThisSession = false;
-
-/** Reset the once-per-session guard (for Diagnostics/testing). */
-export function resetHealGuard() {
-  _ranThisSession = false;
-}
+let _running = false;
 
 /**
  * @param {Array} apiTasks - active Todoist tasks (for description patching)
  * @returns {Promise<number>} count of registry entries healed
  */
 export async function healRenamedNotes(apiTasks) {
-  if (_ranThisSession) return 0;
-  _ranThisSession = true;
+  if (_running) return 0;
+  _running = true;
+  try {
+    return await runHeal(apiTasks);
+  } finally {
+    _running = false;
+  }
+}
+
+async function runHeal(apiTasks) {
 
   let healed = 0;
   try {
