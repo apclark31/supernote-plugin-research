@@ -292,6 +292,19 @@ export default function TaskHome({nav, focusTab}: Props) {
         log('TaskHome', `Cache hit: ${cached.tasks.length} tasks (age: ${Date.now() - cached.timestamp}ms)`);
         applyData(cached.tasks, cached.projects);
         setLoading(false);
+        // Kick the heal from cached data NOW instead of after the network
+        // fetch -- the rename probe is seconds-slow already, and waiting on
+        // the fetch added 3+ more (device log 2026-08-15 20:40). HEAL ONLY:
+        // the reconcile's stale-prune must never run against cached data,
+        // or a capture newer than the cache gets its registry entry deleted.
+        // The post-fetch reconcile joins this heal via the in-flight guard.
+        healRenamedNotes(cached.tasks)
+          .then(healedCount => {
+            if (healedCount > 0) {
+              getAllRegistryTasks().then(setDeviceTasks).catch(() => {});
+            }
+          })
+          .catch(() => {});
       }
 
       // Always fetch fresh data (deduplicates with any in-flight prefetch)

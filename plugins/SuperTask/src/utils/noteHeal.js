@@ -125,6 +125,20 @@ async function runHeal(apiTasks) {
         .map(f => (f.startsWith('/') ? f : `${dir}/${f}`))
         .filter(f => !knownPaths.has(f));
 
+      // Probe likeliest candidates first: renames usually extend or tweak
+      // the old name ("Amplitude" -> "Amplitude Integration Notes"), and
+      // each probe costs a full getElements marshal (~3-4s on device), so
+      // longest-common-prefix ordering typically turns a 12s scan into one
+      // probe.
+      const missingName = (path.split('/').pop() || '').replace(/\.note$/, '');
+      const prefixLen = f => {
+        const name = (f.split('/').pop() || '').replace(/\.note$/, '');
+        let i = 0;
+        while (i < Math.min(name.length, missingName.length) && name[i] === missingName[i]) i++;
+        return i;
+      };
+      candidates.sort((a, b) => prefixLen(b) - prefixLen(a));
+
       // Probe candidates for the first task's link at its recorded page
       const probe = entries[0];
       let healedPath = null;
