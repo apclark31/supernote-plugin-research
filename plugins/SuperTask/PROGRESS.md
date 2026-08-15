@@ -11,6 +11,21 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
+**Session 39 (2026-08-15) -- Testing-column triage complete + F-025 refinement build.** Alex's 2026-08-02 on-device pass closed 21 of the 25 Testing items (device-confirmed passes, plus code-verified+soak closes for the unobservable stability fixes -- rationale on each ticket). New .snplg built 2026-08-15 carrying two changes now in Testing: **SNDEV-34/F-025** arm-then-confirm refinement (chip says "Tap box again to complete", the chip is itself a confirm target, 5s window) and **SNDEV-66/F-042** "View all tasks >" CTA copy in the TaskDetail deep-link header. Remaining Testing queue: SNDEV-34, SNDEV-66, plus three untested from before -- SNDEV-37 (F-029 token import), SNDEV-49 (B-005 rename healing), SNDEV-60 (F-038 tab memory). Follow-ups created from testing feedback: SNDEV-65 (F-041 extend text scale to remaining screens), SNDEV-66 (F-042). T-006/SNDEV-20 (remove three-finger tap) is half-unblocked: bezel confirmed on dev A5X, external device still pending.
+
+## SESSION 39 (2026-08-15) -- testing triage, arm-confirm refinement, CTA copy
+
+Processed Alex's 2026-08-02 test comments across the whole Testing column (25 issues):
+
+1. **Closed 21 issues.** Device passes: F-021 bezel (the blessed opener), F-022a logging, F-023 settings v2, F-024 taskhome v2, F-026 note-jump, F-030 show-done, F-031 text scale, F-034 header switcher, F-035 font %, B-004 project filter, B-028 palm gestures (false positives gone; three-finger tap insensitivity is the accepted trade-off, removal decision = T-006/SNDEV-20). Code-verified + soak closes (unobservable fixes; rationale + would-be test on each ticket): B-019/20/21/22/23/24/25/26/27. F-027 link cache closed per Alex (no perceived gain; superseded for markers by F-040/SNDEV-64 option B).
+2. **SNDEV-34 / F-025 failed testing** -- "Tap again to complete" didn't say *where* (the confirm target is the checkbox; the chip was indicator-only; row tap opens detail). Fixed this session (commit `3b635cb`): chip copy "Tap box again to complete", chip is now also a confirm target (checkbox OR chip completes), arm window 3s -> 5s. No geometry change (F-023 no-reflow rule holds).
+3. **SNDEV-66 / F-042 (new, from F-024 feedback):** TaskDetail deep-link header "All Tasks" -> "View all tasks >" (only label-styled nav link found in the sweep). Same commit/build.
+4. **SNDEV-65 / F-041 (new, To Do):** extend text scale to TaskDetail/TaskAdd/QuickAdd/Capture/TaskList/Diagnostics -- coverage map verified in source and documented on the ticket. Chips/shared components already scale; those six screens don't consume `useFontScale`.
+
+**On-device test (build 2026-08-15):** F-025 -- arm then (a) tap box = completes, (b) tap chip = completes, (c) wait 5s = disarms, (d) tap row title = opens detail, no completion. F-042 -- deep-link a task, header shows "View all tasks >", tap lands on TaskHome. Plus the three older untested items: F-029 token import (supertask-token.txt -> Import -> file deleted), B-005 rename healing (rename captured note -> reopen -> `Heal:` log lines + Device tab label), F-038 tab memory (checklist in SNDEV-60 description).
+
+## Previous status (session 37)
+
 **Session 37 (2026-07-26) -- B-031 diagnostic build; issue then reframed. The pen write-through could NOT be reproduced later the same day: pen input on Settings now scrolls the menu correctly (same on SuperHub + sticker plugin), so the incident was one-off, state-dependent pen routing at the platform level. SNDEV-59 downgraded Highest -> High, back to To Do as a watch item, NO LONGER a v0.3.0 blocker. Current .snplg (session 37, 20:35) keeps the diagnostics armed (view-state tracking + pen-through-view logging into the always-on session log) so a recurrence self-documents. Release gated on the session-34 checklist below only.**
 
 ## SESSION 38 (2026-07-27) -- workflow feedback: tab memory, settings regression, info sheet
