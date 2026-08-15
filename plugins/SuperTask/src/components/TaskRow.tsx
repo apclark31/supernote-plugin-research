@@ -6,10 +6,13 @@
  * is the shared drawn Check box, never a text glyph.
  *
  * Completion is ARM-THEN-CONFIRM (F-025): the first tap fills the box and
- * shows a "Tap again to complete" chip; the second tap within 3s completes;
- * otherwise it disarms. One accidental e-ink tap can no longer complete a
- * task sight-unseen. In `checked` mode (Done tab) a single tap reopens --
- * that action is inherently recoverable, so it needs no arming.
+ * shows a "Tap box again to complete" chip; the second tap within 5s
+ * completes; otherwise it disarms. The chip itself is also a confirm target
+ * (on-device testing showed "tap again" without a *where* reads as tap-
+ * anywhere, and the row body opens the detail instead). One accidental
+ * e-ink tap can no longer complete a task sight-unseen. In `checked` mode
+ * (Done tab) a single tap reopens -- that action is inherently recoverable,
+ * so it needs no arming.
  */
 
 import React, {useState, useRef, useEffect} from 'react';
@@ -26,7 +29,7 @@ const PRIORITY_LABELS: Record<number, string> = {
   1: '',
 };
 
-const ARM_WINDOW_MS = 3000;
+const ARM_WINDOW_MS = 5000;
 
 type Props = {
   task: any;
@@ -85,7 +88,6 @@ export default function TaskRow({task, onComplete, onPress, showProject, pageNum
   // single title line centers against the checkbox target. The transient
   // armed chip is added after this decision so arming never reflows the row.
   const hasMeta = chips.length > 0;
-  if (armed) chips.unshift({label: 'Tap again to complete', inverted: true});
 
   return (
     <Pressable
@@ -99,8 +101,13 @@ export default function TaskRow({task, onComplete, onPress, showProject, pageNum
       </Pressable>
       <View style={styles.content}>
         <Text style={[styles.title, {fontSize: Math.round(16 * scale), lineHeight: Math.round(22 * scale)}]}>{task.content}</Text>
-        {chips.length > 0 && (
+        {(chips.length > 0 || armed) && (
           <View style={styles.meta}>
+            {armed && (
+              <Pressable onPress={handleCheckPress} hitSlop={8}>
+                <Chip label="Tap box again to complete" inverted />
+              </Pressable>
+            )}
             {chips.map((c, i) => (
               <Chip key={i} label={c.label} inverted={c.inverted} />
             ))}

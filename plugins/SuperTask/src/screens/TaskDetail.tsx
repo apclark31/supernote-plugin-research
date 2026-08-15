@@ -227,7 +227,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
         </Pressable>
         {!nav.canGoBack ? (
           <Pressable onPress={() => { log('TaskDetail', 'All Tasks pressed'); nav.resetTo('task-home'); }}>
-            <Text style={styles.headerTitleLink}>All Tasks</Text>
+            <Text style={styles.headerTitleLink}>{'View all tasks >'}</Text>
           </Pressable>
         ) : (
           <Text style={styles.headerTitle}>Edit Task</Text>
