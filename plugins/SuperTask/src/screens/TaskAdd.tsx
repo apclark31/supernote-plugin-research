@@ -21,6 +21,7 @@ import {addTask as registryAddTask} from '../utils/taskRegistry';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
 import DatePicker from '../components/DatePicker';
+import {useFontScale} from '../utils/useFontScale';
 
 type Nav = {
   push: (name: string, params?: Record<string, any>) => void;
@@ -68,6 +69,7 @@ type Props = {
 };
 
 export default function TaskAdd({nav, projects, defaultProjectId, initialContent, initialDescription, captureMode, noteContext}: Props) {
+  const scale = useFontScale();
   const [content, setContent] = useState(initialContent || '');
   const [description, setDescription] = useState(initialDescription || '');
   const [priority, setPriority] = useState(1);
@@ -287,22 +289,22 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
             nav.pop();
           }
         }}>
-          <Text style={styles.backText}>{captureMode ? 'Close' : '< Back'}</Text>
+          <Text style={[styles.backText, {fontSize: Math.round(15 * scale)}]}>{captureMode ? 'Close' : '< Back'}</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>
+        <Text style={[styles.headerTitle, {fontSize: Math.round(20 * scale)}]}>
           {captureMode === 'lasso' ? 'Captured Task' : captureMode === 'doc' ? 'From Document' : 'Add Task'}
         </Text>
         {debugMode ? (
           <Pressable onPress={() => { log('TaskAdd', 'LOG pressed'); nav.resetTo('debug'); }}>
-            <Text style={styles.backText}>Log</Text>
+            <Text style={[styles.backText, {fontSize: Math.round(15 * scale)}]}>Log</Text>
           </Pressable>
         ) : <View />}
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.label}>Task</Text>
+        <Text style={[styles.label, {fontSize: Math.round(16 * scale)}]}>Task</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, {fontSize: Math.round(16 * scale)}]}
           value={content}
           onChangeText={setContent}
           placeholder="What needs to be done?"
@@ -311,11 +313,11 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.label}>Due Date</Text>
+        <Text style={[styles.label, {fontSize: Math.round(16 * scale)}]}>Due Date</Text>
         <Pressable
           style={styles.input}
           onPress={() => { log('TaskAdd', 'DUE DATE pressed'); setShowDatePicker(true); }}>
-          <Text style={dueString ? styles.inputValue : styles.inputPlaceholder}>
+          <Text style={[dueString ? styles.inputValue : styles.inputPlaceholder, {fontSize: Math.round(16 * scale)}]}>
             {dueString || 'Tap to pick a date'}
           </Text>
         </Pressable>
@@ -331,13 +333,13 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.label}>Priority</Text>
+        <Text style={[styles.label, {fontSize: Math.round(16 * scale)}]}>Priority</Text>
         <PriorityPicker value={priority} onChange={setPriority} />
       </View>
 
       {projects.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.label}>Project</Text>
+          <Text style={[styles.label, {fontSize: Math.round(16 * scale)}]}>Project</Text>
           <ProjectPicker
             projects={projects}
             selectedId={projectId}
@@ -347,9 +349,9 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
       )}
 
       <View style={styles.section}>
-        <Text style={styles.label}>Description</Text>
+        <Text style={[styles.label, {fontSize: Math.round(16 * scale)}]}>Description</Text>
         <TextInput
-          style={[styles.input, styles.inputMultiline]}
+          style={[styles.input, styles.inputMultiline, {fontSize: Math.round(16 * scale)}]}
           value={description}
           onChangeText={setDescription}
           placeholder="Optional notes"
@@ -361,7 +363,7 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
         style={[styles.submitButton, submitting && styles.buttonDisabled]}
         onPress={handleSubmit}
         disabled={submitting}>
-        <Text style={[styles.submitText, submitting && styles.submitTextDisabled]}>
+        <Text style={[styles.submitText, submitting && styles.submitTextDisabled, {fontSize: Math.round(18 * scale)}]}>
           {submitting ? 'Adding...' : 'Add to Todoist'}
         </Text>
       </Pressable>
@@ -369,9 +371,9 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
     {justCreated ? (
       <View style={styles.overlayCenter}>
         <View style={styles.overlayModal}>
-          <Text style={styles.overlayText}>Task added!</Text>
+          <Text style={[styles.overlayText, {fontSize: Math.round(18 * scale)}]}>Task added!</Text>
           {captureMode === 'lasso' && noteContext && (
-            <Text style={[styles.convertedLabel, markDone !== 'text' && {opacity: 0}]}>
+            <Text style={[styles.convertedLabel, markDone !== 'text' && {opacity: 0}, {fontSize: Math.round(14 * scale)}]}>
               Handwriting converted to text.
             </Text>
           )}
@@ -381,26 +383,26 @@ export default function TaskAdd({nav, projects, defaultProjectId, initialContent
                 style={styles.overlayButton}
                 onPress={handleConvertToText}
                 disabled={marking}>
-                <Text style={styles.overlayButtonText}>
+                <Text style={[styles.overlayButtonText, {fontSize: Math.round(15 * scale)}]}>
                   {marking ? 'Converting...' : 'Convert to Text'}
                 </Text>
               </Pressable>
             )}
             <Pressable style={styles.overlayButton} onPress={handleAddAnother}>
-              <Text style={styles.overlayButtonText}>Add Another</Text>
+              <Text style={[styles.overlayButtonText, {fontSize: Math.round(15 * scale)}]}>Add Another</Text>
             </Pressable>
             <Pressable style={styles.overlayButton} onPress={handleViewTask}>
-              <Text style={styles.overlayButtonText}>View Task</Text>
+              <Text style={[styles.overlayButtonText, {fontSize: Math.round(15 * scale)}]}>View Task</Text>
             </Pressable>
             <Pressable style={[styles.overlayButton, styles.overlayButtonPrimary]} onPress={handleDone}>
-              <Text style={[styles.overlayButtonText, styles.overlayButtonTextPrimary]}>Done</Text>
+              <Text style={[styles.overlayButtonText, styles.overlayButtonTextPrimary, {fontSize: Math.round(15 * scale)}]}>Done</Text>
             </Pressable>
           </View>
         </View>
       </View>
     ) : status ? (
       <View style={styles.statusBar}>
-        <Text style={styles.statusBarText}>{status}</Text>
+        <Text style={[styles.statusBarText, {fontSize: Math.round(14 * scale)}]}>{status}</Text>
       </View>
     ) : null}
     </View>

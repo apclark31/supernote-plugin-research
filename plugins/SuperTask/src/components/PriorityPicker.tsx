@@ -7,6 +7,7 @@
 import React from 'react';
 import {View, Text, Pressable, StyleSheet} from 'react-native';
 import {log} from '../utils/debug';
+import {useFontScale} from '../utils/useFontScale';
 
 const PRIORITIES = [
   {value: 4, label: 'P1'},
@@ -21,6 +22,7 @@ type Props = {
 };
 
 export default function PriorityPicker({value, onChange}: Props) {
+  const scale = useFontScale();
   return (
     <View style={styles.row}>
       {PRIORITIES.map(p => (
@@ -28,7 +30,7 @@ export default function PriorityPicker({value, onChange}: Props) {
           key={p.value}
           style={[styles.button, value === p.value && styles.selected]}
           onPress={() => { log('PriorityPicker', `pressed: ${p.label}`); onChange(p.value); }}>
-          <Text style={[styles.text, value === p.value && styles.textSelected]}>
+          <Text style={[styles.text, {fontSize: Math.round(16 * scale)}, value === p.value && styles.textSelected]}>
             {p.label}
           </Text>
         </Pressable>

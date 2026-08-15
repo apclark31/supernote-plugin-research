@@ -18,6 +18,7 @@ import {closePlugin} from '../utils/closePlugin';
 import {loadConfig} from '../utils/config';
 import {setConfigLoader, getProjects} from '../api/todoist';
 import {log, logError} from '../utils/debug';
+import {useFontScale} from '../utils/useFontScale';
 import {recognizeLassoElements, recycleElements} from '../utils/ocr';
 
 type Nav = {
@@ -60,6 +61,7 @@ function getEmrMaximums(pageSize: {width: number; height: number}, emrMaxX: numb
 }
 
 export default function Capture({mode, nav}: Props) {
+  const scale = useFontScale();
   // On-screen trace log for debugging without dev server
   const [trace, setTrace] = useState<string[]>([]);
   const [error, setError] = useState('');
@@ -325,23 +327,23 @@ export default function Capture({mode, nav}: Props) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Capture Error</Text>
+          <Text style={[styles.headerTitle, {fontSize: Math.round(20 * scale)}]}>Capture Error</Text>
           <Pressable style={styles.headerBtn} onPress={() => closePlugin()}>
-            <Text style={styles.headerBtnText}>Close</Text>
+            <Text style={[styles.headerBtnText, {fontSize: Math.round(14 * scale)}]}>Close</Text>
           </Pressable>
         </View>
-        <Text style={styles.errorText}>{error}</Text>
+        <Text style={[styles.errorText, {fontSize: Math.round(18 * scale)}]}>{error}</Text>
         <View style={styles.buttonRow}>
           <Pressable style={styles.btn} onPress={() => {
             setError('');
             setTrace([]);
             runCapture();
           }}>
-            <Text style={styles.btnText}>Retry</Text>
+            <Text style={[styles.btnText, {fontSize: Math.round(16 * scale)}]}>Retry</Text>
           </Pressable>
           {debugMode && (
             <Pressable style={styles.btn} onPress={() => nav.resetTo('debug')}>
-              <Text style={styles.btnText}>Log</Text>
+              <Text style={[styles.btnText, {fontSize: Math.round(16 * scale)}]}>Log</Text>
             </Pressable>
           )}
         </View>
@@ -361,11 +363,11 @@ export default function Capture({mode, nav}: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>
+        <Text style={[styles.headerTitle, {fontSize: Math.round(20 * scale)}]}>
           {mode === 'lasso' ? 'Recognizing...' : 'Reading text...'}
         </Text>
         <Pressable style={styles.headerBtn} onPress={handleCancel}>
-          <Text style={styles.headerBtnText}>Close</Text>
+          <Text style={[styles.headerBtnText, {fontSize: Math.round(14 * scale)}]}>Close</Text>
         </Pressable>
       </View>
       {debugMode ? (
@@ -377,7 +379,7 @@ export default function Capture({mode, nav}: Props) {
         </ScrollView>
       ) : (
         <View style={styles.traceScroll}>
-          <Text style={styles.traceLine}>
+          <Text style={[styles.traceLine, {fontSize: Math.round(13 * scale), lineHeight: Math.round(18 * scale)}]}>
             {done ? 'Done' : 'Processing...'}
           </Text>
         </View>

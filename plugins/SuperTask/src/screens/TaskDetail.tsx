@@ -22,6 +22,7 @@ import {log, logError} from '../utils/debug';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
 import DatePicker from '../components/DatePicker';
+import {useFontScale} from '../utils/useFontScale';
 
 type Nav = {
   push: (name: string, params?: Record<string, any>) => void;
@@ -54,6 +55,7 @@ function parseNoteContext(desc: string): {notePath: string; noteFile: string; pa
 }
 
 export default function TaskDetail({nav, task, projects}: Props) {
+  const scale = useFontScale();
   const [content, setContent] = useState(task?.content || '');
   const rawDescription = task?.description || '';
   const [noteContext] = useState(() => parseNoteContext(rawDescription));
@@ -223,17 +225,17 @@ export default function TaskDetail({nav, task, projects}: Props) {
             closePlugin();
           }
         }}>
-          <Text style={styles.backText}>{nav.canGoBack ? '< Back' : '< Note'}</Text>
+          <Text style={[styles.backText, {fontSize: Math.round(15 * scale)}]}>{nav.canGoBack ? '< Back' : '< Note'}</Text>
         </Pressable>
         {!nav.canGoBack ? (
           <Pressable onPress={() => { log('TaskDetail', 'All Tasks pressed'); nav.resetTo('task-home'); }}>
-            <Text style={styles.headerTitleLink}>{'View all tasks >'}</Text>
+            <Text style={[styles.headerTitleLink, {fontSize: Math.round(18 * scale)}]}>{'View all tasks >'}</Text>
           </Pressable>
         ) : (
-          <Text style={styles.headerTitle}>Edit Task</Text>
+          <Text style={[styles.headerTitle, {fontSize: Math.round(20 * scale)}]}>Edit Task</Text>
         )}
         <Pressable onPress={handleDelete}>
-          <Text style={styles.deleteText}>
+          <Text style={[styles.deleteText, {fontSize: Math.round(15 * scale)}]}>
             {confirmDelete ? 'Confirm Delete' : 'Delete'}
           </Text>
         </Pressable>
@@ -243,25 +245,25 @@ export default function TaskDetail({nav, task, projects}: Props) {
         <View style={styles.noteContext}>
           <View style={styles.noteContextRow}>
             <View style={{flex: 1}}>
-              <Text style={styles.noteContextLabel}>Captured from</Text>
-              <Text style={styles.noteContextValue}>
+              <Text style={[styles.noteContextLabel, {fontSize: Math.round(12 * scale)}]}>Captured from</Text>
+              <Text style={[styles.noteContextValue, {fontSize: Math.round(15 * scale)}]}>
                 {noteLabel(noteContext.notePath, noteContext.noteFile)} — page {noteContext.pageNum}
               </Text>
             </View>
             <Pressable style={styles.viewNoteBtn} onPress={handleViewNote}>
-              <Text style={styles.viewNoteBtnText}>View Note</Text>
+              <Text style={[styles.viewNoteBtnText, {fontSize: Math.round(13 * scale)}]}>View Note</Text>
             </Pressable>
           </View>
           {viewNoteStatus ? (
-            <Text style={styles.viewNoteStatus}>{viewNoteStatus}</Text>
+            <Text style={[styles.viewNoteStatus, {fontSize: Math.round(12 * scale)}]}>{viewNoteStatus}</Text>
           ) : null}
         </View>
       )}
 
       <View style={styles.section}>
-        <Text style={styles.label}>Task</Text>
+        <Text style={[styles.label, {fontSize: Math.round(16 * scale)}]}>Task</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, {fontSize: Math.round(16 * scale)}]}
           value={content}
           onChangeText={(t) => { log('TaskDetail', `content changed: "${t.slice(0, 30)}"`); setContent(t); }}
           onFocus={() => log('TaskDetail', 'content FOCUSED')}
@@ -271,9 +273,9 @@ export default function TaskDetail({nav, task, projects}: Props) {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.label}>Description</Text>
+        <Text style={[styles.label, {fontSize: Math.round(16 * scale)}]}>Description</Text>
         <TextInput
-          style={[styles.input, styles.inputMultiline]}
+          style={[styles.input, styles.inputMultiline, {fontSize: Math.round(16 * scale)}]}
           value={description}
           onChangeText={(t) => { log('TaskDetail', 'description changed'); setDescription(t); }}
           onFocus={() => log('TaskDetail', 'description FOCUSED')}
@@ -283,11 +285,11 @@ export default function TaskDetail({nav, task, projects}: Props) {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.label}>Due Date</Text>
+        <Text style={[styles.label, {fontSize: Math.round(16 * scale)}]}>Due Date</Text>
         <Pressable
           style={styles.input}
           onPress={() => { log('TaskDetail', 'DUE DATE pressed'); setShowDatePicker(true); }}>
-          <Text style={dueString ? styles.inputValue : styles.inputPlaceholder}>
+          <Text style={[dueString ? styles.inputValue : styles.inputPlaceholder, {fontSize: Math.round(16 * scale)}]}>
             {dueString || 'Tap to pick a date'}
           </Text>
         </Pressable>
@@ -303,13 +305,13 @@ export default function TaskDetail({nav, task, projects}: Props) {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.label}>Priority</Text>
+        <Text style={[styles.label, {fontSize: Math.round(16 * scale)}]}>Priority</Text>
         <PriorityPicker value={priority} onChange={(p) => { log('TaskDetail', `priority changed: ${p}`); setPriority(p); }} />
       </View>
 
       {projects.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.label}>Project</Text>
+          <Text style={[styles.label, {fontSize: Math.round(16 * scale)}]}>Project</Text>
           <ProjectPicker
             projects={projects}
             selectedId={projectId}
@@ -322,14 +324,14 @@ export default function TaskDetail({nav, task, projects}: Props) {
         style={[styles.completeButton]}
         onPress={handleComplete}
         disabled={saving}>
-        <Text style={styles.completeText}>Mark Complete</Text>
+        <Text style={[styles.completeText, {fontSize: Math.round(18 * scale)}]}>Mark Complete</Text>
       </Pressable>
 
       <Pressable
         style={[styles.saveButton, (!isDirty || saving) && styles.buttonDisabled]}
         onPress={handleSave}
         disabled={!isDirty || saving}>
-        <Text style={[styles.saveText, (!isDirty || saving) && styles.saveTextDisabled]}>
+        <Text style={[styles.saveText, (!isDirty || saving) && styles.saveTextDisabled, {fontSize: Math.round(18 * scale)}]}>
           {saving ? 'Saving...' : 'Save Changes'}
         </Text>
       </Pressable>
@@ -337,7 +339,7 @@ export default function TaskDetail({nav, task, projects}: Props) {
     </ScrollView>
     {status ? (
       <View style={styles.overlay}>
-        <Text style={styles.overlayText}>{status}</Text>
+        <Text style={[styles.overlayText, {fontSize: Math.round(15 * scale)}]}>{status}</Text>
       </View>
     ) : null}
     </View>

@@ -25,6 +25,7 @@ import {recognizeLassoElements, recycleElements} from '../utils/ocr';
 import {addTask as registryAddTask} from '../utils/taskRegistry';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
+import {useFontScale} from '../utils/useFontScale';
 
 type Nav = {
   push: (name: string, params?: Record<string, any>) => void;
@@ -61,6 +62,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 type Phase = 'recognizing' | 'ready' | 'submitting' | 'success' | 'error';
 
 export default function QuickAdd({nav}: {nav: Nav}) {
+  const scale = useFontScale();
   const [phase, setPhase] = useState<Phase>('recognizing');
   const [statusText, setStatusText] = useState('Recognizing...');
   const [errorText, setErrorText] = useState('');
@@ -372,7 +374,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     if (phase === 'recognizing') {
       return (
         <View style={s.panelBody}>
-          <Text style={s.phaseText}>{statusText}</Text>
+          <Text style={[s.phaseText, {fontSize: Math.round(18 * scale)}]}>{statusText}</Text>
         </View>
       );
     }
@@ -380,13 +382,13 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     if (phase === 'error') {
       return (
         <View style={s.panelBody}>
-          <Text style={s.errorText}>{errorText}</Text>
+          <Text style={[s.errorText, {fontSize: Math.round(16 * scale)}]}>{errorText}</Text>
           <View style={s.buttonRow}>
             <Pressable style={s.btn} onPress={() => { setErrorText(''); runCapture(); }}>
-              <Text style={s.btnText}>Retry</Text>
+              <Text style={[s.btnText, {fontSize: Math.round(15 * scale)}]}>Retry</Text>
             </Pressable>
             <Pressable style={s.btn} onPress={handleDone}>
-              <Text style={s.btnText}>Close</Text>
+              <Text style={[s.btnText, {fontSize: Math.round(15 * scale)}]}>Close</Text>
             </Pressable>
           </View>
         </View>
@@ -396,7 +398,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     if (phase === 'submitting') {
       return (
         <View style={s.panelBody}>
-          <Text style={s.phaseText}>{statusText}</Text>
+          <Text style={[s.phaseText, {fontSize: Math.round(18 * scale)}]}>{statusText}</Text>
         </View>
       );
     }
@@ -405,8 +407,8 @@ export default function QuickAdd({nav}: {nav: Nav}) {
       const canConvert = noteContextRef.current && markDone !== 'text';
       return (
         <View style={s.panelBody}>
-          <Text style={s.successText}>Task added!</Text>
-          <Text style={[s.convertedLabel, markDone !== 'text' && {opacity: 0}]}>
+          <Text style={[s.successText, {fontSize: Math.round(20 * scale)}]}>Task added!</Text>
+          <Text style={[s.convertedLabel, markDone !== 'text' && {opacity: 0}, {fontSize: Math.round(14 * scale)}]}>
             Handwriting converted to text.
           </Text>
           <View style={s.successRow}>
@@ -415,16 +417,16 @@ export default function QuickAdd({nav}: {nav: Nav}) {
                 style={s.successBtn}
                 onPress={handleConvertToText}
                 disabled={marking}>
-                <Text style={s.successBtnText}>
+                <Text style={[s.successBtnText, {fontSize: Math.round(14 * scale)}]}>
                   {marking ? 'Converting...' : 'Convert to Text'}
                 </Text>
               </Pressable>
             )}
             <Pressable style={s.successBtn} onPress={handleViewTasks}>
-              <Text style={s.successBtnText}>View Tasks</Text>
+              <Text style={[s.successBtnText, {fontSize: Math.round(14 * scale)}]}>View Tasks</Text>
             </Pressable>
             <Pressable style={[s.successBtn, s.successBtnPrimary]} onPress={handleDone} disabled={marking}>
-              <Text style={[s.successBtnText, s.successBtnPrimaryText]}>Done</Text>
+              <Text style={[s.successBtnText, s.successBtnPrimaryText, {fontSize: Math.round(14 * scale)}]}>Done</Text>
             </Pressable>
           </View>
         </View>
@@ -435,9 +437,9 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     return (
       <ScrollView style={s.panelScroll} keyboardShouldPersistTaps="handled">
         <View style={s.field}>
-          <Text style={s.label}>Task</Text>
+          <Text style={[s.label, {fontSize: Math.round(15 * scale)}]}>Task</Text>
           <TextInput
-            style={s.input}
+            style={[s.input, {fontSize: Math.round(16 * scale)}]}
             value={content}
             onChangeText={setContent}
             multiline
@@ -445,13 +447,13 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         </View>
 
         <View style={s.field}>
-          <Text style={s.label}>Priority</Text>
+          <Text style={[s.label, {fontSize: Math.round(15 * scale)}]}>Priority</Text>
           <PriorityPicker value={priority} onChange={setPriority} />
         </View>
 
         {projects.length > 0 && (
           <View style={s.field}>
-            <Text style={s.label}>Project</Text>
+            <Text style={[s.label, {fontSize: Math.round(15 * scale)}]}>Project</Text>
             <ProjectPicker
               projects={projects}
               selectedId={projectId}
@@ -461,9 +463,9 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         )}
 
         <View style={s.field}>
-          <Text style={s.label}>Description</Text>
+          <Text style={[s.label, {fontSize: Math.round(15 * scale)}]}>Description</Text>
           <TextInput
-            style={[s.input, s.inputDesc]}
+            style={[s.input, s.inputDesc, {fontSize: Math.round(16 * scale)}]}
             value={description}
             onChangeText={setDescription}
             placeholder="Optional notes"
@@ -472,7 +474,7 @@ export default function QuickAdd({nav}: {nav: Nav}) {
         </View>
 
         <Pressable style={s.submitBtn} onPress={handleSubmit}>
-          <Text style={s.submitBtnText}>Add to Todoist</Text>
+          <Text style={[s.submitBtnText, {fontSize: Math.round(17 * scale)}]}>Add to Todoist</Text>
         </Pressable>
       </ScrollView>
     );
@@ -482,17 +484,17 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     <Pressable style={s.overlay} onPress={handleDismiss}>
       <Pressable style={s.panel} onPress={(e) => e.stopPropagation()}>
         <View style={s.panelHeader}>
-          <Text style={s.panelTitle}>
+          <Text style={[s.panelTitle, {fontSize: Math.round(20 * scale)}]}>
             {phase === 'success' ? 'Done' : phase === 'error' ? 'Error' : 'Quick Add'}
           </Text>
           <View style={s.headerRight}>
             {phase === 'ready' && (
               <Pressable style={s.tasksLink} onPress={handleViewTasks}>
-                <Text style={s.tasksLinkText}>Tasks</Text>
+                <Text style={[s.tasksLinkText, {fontSize: Math.round(15 * scale)}]}>Tasks</Text>
               </Pressable>
             )}
             <Pressable style={s.closeBtn} onPress={handleDone}>
-              <Text style={s.closeBtnText}>X</Text>
+              <Text style={[s.closeBtnText, {fontSize: Math.round(16 * scale)}]}>X</Text>
             </Pressable>
           </View>
         </View>

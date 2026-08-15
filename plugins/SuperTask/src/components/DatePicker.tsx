@@ -9,6 +9,7 @@
 import React, {useState} from 'react';
 import {View, Text, Pressable, StyleSheet} from 'react-native';
 import {log} from '../utils/debug';
+import {useFontScale} from '../utils/useFontScale';
 
 const DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -21,6 +22,7 @@ type Props = {
 };
 
 export default function DatePicker({value, onChange, onClose}: Props) {
+  const scale = useFontScale();
   const today = new Date();
   const initial = value ? new Date(value + 'T00:00:00') : today;
   const [viewYear, setViewYear] = useState(initial.getFullYear());
@@ -81,19 +83,19 @@ export default function DatePicker({value, onChange, onClose}: Props) {
     <View style={styles.container}>
       <View style={styles.header}>
         <Pressable style={styles.navButton} onPress={prevMonth}>
-          <Text style={styles.navText}>{'<'}</Text>
+          <Text style={[styles.navText, {fontSize: Math.round(18 * scale)}]}>{'<'}</Text>
         </Pressable>
-        <Text style={styles.monthLabel}>
+        <Text style={[styles.monthLabel, {fontSize: Math.round(16 * scale)}]}>
           {MONTHS[viewMonth]} {viewYear}
         </Text>
         <Pressable style={styles.navButton} onPress={nextMonth}>
-          <Text style={styles.navText}>{'>'}</Text>
+          <Text style={[styles.navText, {fontSize: Math.round(18 * scale)}]}>{'>'}</Text>
         </Pressable>
       </View>
 
       <View style={styles.dayHeaders}>
         {DAYS.map(d => (
-          <Text key={d} style={styles.dayHeader}>{d}</Text>
+          <Text key={d} style={[styles.dayHeader, {fontSize: Math.round(13 * scale)}]}>{d}</Text>
         ))}
       </View>
 
@@ -118,6 +120,7 @@ export default function DatePicker({value, onChange, onClose}: Props) {
                 onPress={() => selectDate(day)}>
                 <Text style={[
                   styles.cellText,
+                  {fontSize: Math.round(15 * scale)},
                   isToday && styles.cellTextToday,
                   isSelected && styles.cellTextSelected,
                 ]}>
@@ -131,13 +134,13 @@ export default function DatePicker({value, onChange, onClose}: Props) {
 
       <View style={styles.footer}>
         <Pressable style={styles.footerButton} onPress={() => { onChange(todayStr); onClose(); }}>
-          <Text style={styles.footerButtonText}>Today</Text>
+          <Text style={[styles.footerButtonText, {fontSize: Math.round(14 * scale)}]}>Today</Text>
         </Pressable>
         <Pressable style={styles.footerButton} onPress={handleClear}>
-          <Text style={styles.footerButtonText}>Clear</Text>
+          <Text style={[styles.footerButtonText, {fontSize: Math.round(14 * scale)}]}>Clear</Text>
         </Pressable>
         <Pressable style={styles.footerButton} onPress={onClose}>
-          <Text style={styles.footerButtonText}>Cancel</Text>
+          <Text style={[styles.footerButtonText, {fontSize: Math.round(14 * scale)}]}>Cancel</Text>
         </Pressable>
       </View>
     </View>

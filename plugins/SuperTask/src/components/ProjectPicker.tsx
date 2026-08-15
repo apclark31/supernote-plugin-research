@@ -8,6 +8,7 @@
 import React from 'react';
 import {View, Text, Pressable, StyleSheet} from 'react-native';
 import {log} from '../utils/debug';
+import {useFontScale} from '../utils/useFontScale';
 
 type Project = {
   id: string;
@@ -21,6 +22,7 @@ type Props = {
 };
 
 export default function ProjectPicker({projects, selectedId, onChange}: Props) {
+  const scale = useFontScale();
   if (!projects.length) return null;
 
   return (
@@ -30,7 +32,7 @@ export default function ProjectPicker({projects, selectedId, onChange}: Props) {
           key={p.id}
           style={[styles.button, selectedId === p.id && styles.selected]}
           onPress={() => { log('ProjectPicker', `pressed: ${p.name} (${p.id})`); onChange(selectedId === p.id ? null : p.id); }}>
-          <Text style={[styles.text, selectedId === p.id && styles.textSelected]}>
+          <Text style={[styles.text, {fontSize: Math.round(14 * scale)}, selectedId === p.id && styles.textSelected]}>
             {p.name}
           </Text>
         </Pressable>
