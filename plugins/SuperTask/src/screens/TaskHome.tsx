@@ -23,11 +23,13 @@ import {useFontScale} from '../utils/useFontScale';
 import {Check} from '../components/settings';
 import {loadConfig, getCachedConfig, resolveDefaultTab} from '../utils/config';
 import {getSessionTab, setSessionTab} from '../utils/viewState';
-import {completeTask, reopenTask, getCompletedTasks} from '../api/todoist';
+import {reopenTask, getCompletedTasks} from '../api/todoist';
 import {getCache, fetchTaskData, invalidateCache, initTaskCache} from '../cache/taskCache';
 import {log, logError} from '../utils/debug';
 import TabBar from '../components/TabBar';
 import TaskRow from '../components/TaskRow';
+import SelectionBar from '../components/SelectionBar';
+import {useTaskSelection} from '../utils/useTaskSelection';
 import SectionHeader from '../components/SectionHeader';
 import Chip from '../components/Chip';
 
@@ -354,18 +356,20 @@ export default function TaskHome({nav, focusTab}: Props) {
     }
   };
 
-  const handleComplete = async (taskId: string) => {
-    log('TaskHome', `COMPLETE pressed taskId=${taskId}`);
-    try {
-      await completeTask(taskId);
-      log('TaskHome', `COMPLETE success taskId=${taskId}`);
-      setTasks(prev => prev.filter(t => t.id !== taskId));
+  // F-025 v2 / F-043: checkbox taps SELECT; completion commits from the
+  // contextual header (SelectionBar swaps into the header band -- fixed
+  // geometry). Selection clears on tab switch and refresh.
+  const sel = useTaskSelection('TaskHome', {
+    onCompleted: ids => {
+      setTasks(prev => prev.filter(t => !ids.includes(t.id)));
       invalidateCache();
-    } catch (err: any) {
-      logError('TaskHome', err);
-      setError(`Complete failed: ${err.message}`);
-    }
-  };
+    },
+    onUndone: () => {
+      invalidateCache();
+      fetchData(true); // pull the reopened tasks back into the active lists
+    },
+    onError: msg => setError(msg),
+  });
 
   // Jump straight into a note at a task's page. Registry pages are 0-based,
   // the intent is 1-based; openNote() closes the plugin view itself.
@@ -463,7 +467,8 @@ export default function TaskHome({nav, focusTab}: Props) {
             {i > 0 && <View style={styles.thisPageSeparator} />}
             <TaskRow
               task={task}
-              onComplete={handleComplete}
+              selected={sel.selectedIds.includes(task.id)}
+              onCheckPress={sel.toggleSelect}
               onPress={handleTaskPress}
               showProject={projectMap[task.project_id]}
               pageNum={pageNum}
@@ -546,7 +551,7 @@ export default function TaskHome({nav, focusTab}: Props) {
               task={item.task}
               checked
               completedAt={item.task.completed_at}
-              onComplete={handleReopen}
+              onCheckPress={handleReopen}
               onPress={handleTaskPress}
               showProject={projectMap[item.task.project_id]}
             />
@@ -614,7 +619,7 @@ export default function TaskHome({nav, focusTab}: Props) {
                 task={item.task}
                 checked
                 completedAt={item.task.completed_at}
-                onComplete={handleReopen}
+                onCheckPress={handleReopen}
                 onPress={handleTaskPress}
                 showProject={projectMap[item.task.project_id]}
               />
@@ -623,7 +628,8 @@ export default function TaskHome({nav, focusTab}: Props) {
           return (
             <TaskRow
               task={item.task}
-              onComplete={handleComplete}
+              selected={sel.selectedIds.includes(item.task.id)}
+              onCheckPress={sel.toggleSelect}
               onPress={handleTaskPress}
             />
           );
@@ -672,7 +678,8 @@ export default function TaskHome({nav, focusTab}: Props) {
           return (
             <TaskRow
               task={item.task}
-              onComplete={handleComplete}
+              selected={sel.selectedIds.includes(item.task.id)}
+              onCheckPress={sel.toggleSelect}
               onPress={handleTaskPress}
               showProject={projectMap[item.task.project_id]}
             />
@@ -796,7 +803,8 @@ export default function TaskHome({nav, focusTab}: Props) {
           return (
             <TaskRow
               task={item.task}
-              onComplete={handleComplete}
+              selected={sel.selectedIds.includes(item.task.id)}
+              onCheckPress={sel.toggleSelect}
               onPress={handleTaskPress}
               showProject={projectMap[item.task.project_id]}
               pageNum={item.pageNum}
@@ -828,31 +836,50 @@ export default function TaskHome({nav, focusTab}: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={[styles.title, {fontSize: Math.round(22 * scale)}]}>SuperTask</Text>
-        <View style={styles.headerButtons}>
-          {/* Primary action is the only inverted button. Log/Diag moved to
-              Settings > Debugging -- five identical header buttons had no
-              hierarchy (design-home-v2.md). Debug mode restores the Log
-              button here (its Settings hint promises exactly that). */}
-          <Pressable style={[styles.headerButton, styles.headerButtonPrimary]} onPress={handleAddTask}>
-            <Text style={[styles.headerButtonText, styles.headerButtonPrimaryText]}>+ New</Text>
-          </Pressable>
-          {debugMode && (
-            <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'LOG pressed'); nav.push('debug'); }}>
-              <Text style={styles.headerButtonText}>Log</Text>
-            </Pressable>
-          )}
-          <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'SETTINGS pressed'); nav.push('config'); }}>
-            <Text style={styles.headerButtonText}>Settings</Text>
-          </Pressable>
-          <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'CLOSE pressed'); closePlugin(); }}>
-            <Text style={styles.headerButtonText}>Close</Text>
-          </Pressable>
-        </View>
+        {/* F-025 v2 / F-043: while selecting (or offering undo), the header
+            band keeps its geometry and only its CONTENT swaps to the
+            contextual action bar -- confirmation lives up here, never in
+            the rows, so the list never shifts. */}
+        {sel.active ? (
+          <SelectionBar
+            count={sel.selectedIds.length}
+            undoCount={sel.undoIds.length}
+            busy={sel.busy}
+            onComplete={sel.completeSelected}
+            onClear={sel.clearSelection}
+            onUndo={sel.undo}
+            onDismiss={sel.dismissUndo}
+          />
+        ) : (
+          <>
+            <Text style={[styles.title, {fontSize: Math.round(22 * scale)}]}>SuperTask</Text>
+            <View style={styles.headerButtons}>
+              {/* Primary action is the only inverted button. Log/Diag moved to
+                  Settings > Debugging -- five identical header buttons had no
+                  hierarchy (design-home-v2.md). Debug mode restores the Log
+                  button here (its Settings hint promises exactly that). */}
+              <Pressable style={[styles.headerButton, styles.headerButtonPrimary]} onPress={handleAddTask}>
+                <Text style={[styles.headerButtonText, styles.headerButtonPrimaryText]}>+ New</Text>
+              </Pressable>
+              {debugMode && (
+                <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'LOG pressed'); nav.push('debug'); }}>
+                  <Text style={styles.headerButtonText}>Log</Text>
+                </Pressable>
+              )}
+              <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'SETTINGS pressed'); nav.push('config'); }}>
+                <Text style={styles.headerButtonText}>Settings</Text>
+              </Pressable>
+              <Pressable style={styles.headerButton} onPress={() => { log('TaskHome', 'CLOSE pressed'); closePlugin(); }}>
+                <Text style={styles.headerButtonText}>Close</Text>
+              </Pressable>
+            </View>
+          </>
+        )}
       </View>
 
       <TabBar tabs={TABS} activeTab={activeTab} onTabChange={(tab) => {
         log('TaskHome', `TAB changed: ${tab}`);
+        sel.clearSelection(); // selection and undo are per-view
         setActiveTab(tab);
         // F-038: remember within the session (survives push/pop remounts)
         // and persist for the 'last' default across close/reopen.
@@ -882,6 +909,7 @@ export default function TaskHome({nav, focusTab}: Props) {
             <Text style={[styles.footerText, {fontSize: Math.round(13 * scale)}]}>Show done</Text>
           </Pressable>
           <Pressable onPress={() => {
+            sel.clearSelection();
             fetchData(true);
             if (activeTab === 'done' || showDone) setDoneFetched(false); // refetch completed list too
           }} hitSlop={8}>
