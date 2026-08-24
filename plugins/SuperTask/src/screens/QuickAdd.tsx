@@ -26,6 +26,7 @@ import {addTask as registryAddTask} from '../utils/taskRegistry';
 import PriorityPicker from '../components/PriorityPicker';
 import ProjectPicker from '../components/ProjectPicker';
 import {useFontScale} from '../utils/useFontScale';
+import {clampRectToPage} from '../utils/rectUtils';
 
 type Nav = {
   push: (name: string, params?: Record<string, any>) => void;
@@ -242,12 +243,13 @@ export default function QuickAdd({nav}: {nav: Nav}) {
     }
   };
 
-  const lassoRect = (rect: {left: number; top: number; right: number; bottom: number}) => ({
-    left: rect.left - 10,
-    top: rect.top - 10,
-    right: rect.right + 10,
-    bottom: rect.bottom + 10,
-  });
+  // 0.1.65: lassoElements rejects out-of-bounds rects, and the 10px pad
+  // overflows for captures near a page edge -- clamp to the page.
+  const lassoRect = (rect: {left: number; top: number; right: number; bottom: number}) =>
+    clampRectToPage(
+      {left: rect.left - 10, top: rect.top - 10, right: rect.right + 10, bottom: rect.bottom + 10},
+      noteContextRef.current?.pageSize,
+    );
 
   const handleConvertToText = async () => {
     const noteContext = noteContextRef.current;

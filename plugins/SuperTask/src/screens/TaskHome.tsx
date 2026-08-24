@@ -15,7 +15,7 @@ import {
 import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask, markCompleted, getTask as getRegistryTask} from '../utils/taskRegistry';
-import {openNote} from '../utils/noteOpener';
+import {openNote, jumpWithinNote} from '../utils/noteOpener';
 import {healRenamedNotes} from '../utils/noteHeal';
 import {noteLabel} from '../utils/noteLabel';
 import {saveConfig} from '../utils/config';
@@ -411,14 +411,20 @@ export default function TaskHome({nav, focusTab}: Props) {
 
   // Jump straight into a note at a task's page. Registry pages are 0-based,
   // the intent is 1-based; openNote() closes the plugin view itself.
-  const handleOpenNote = (path: string, pageNum0?: number, taskId?: string) => {
+  const handleOpenNote = async (path: string, pageNum0?: number, taskId?: string) => {
     const intentPage = (pageNum0 ?? -1) + 1; // unknown page -> 0 = last-used
-    // sameNote jumps re-target the editor instance already running under the
-    // plugin overlay -- a suspect for ignored page extras (cross-note was the
-    // only case validated in the AgP42 findings)
     const sameNote = noteCtx?.filePath === path;
     log('TaskHome', `OPEN NOTE: ${path} page0=${pageNum0 ?? 'unknown'} intent=${intentPage} sameNote=${sameNote} currentPage=${noteCtx?.pageNum ?? 'n/a'}`);
     setJumpError('');
+    // 0.1.65 (SNDEV-70): same-note jumps use jumpToPage -- purpose-built,
+    // no activity churn, and the case intent re-targeting never handled
+    // reliably. Falls through to the openNote path (native openFile, then
+    // intent) when unavailable or config-gated off.
+    if (sameNote && pageNum0 !== undefined) {
+      const jump = await jumpWithinNote(pageNum0);
+      if (jump.success) return;
+      log('TaskHome', `jumpWithinNote unavailable/failed (${jump.error}) -- using openNote path`);
+    }
     openNote(path, intentPage).then(async result => {
       if (result.success) return;
       log('TaskHome', `openNote failed: ${result.error}`);

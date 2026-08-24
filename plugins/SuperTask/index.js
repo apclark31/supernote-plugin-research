@@ -16,11 +16,20 @@ import {name as appName} from './app.json';
 import {PluginManager} from 'sn-plugin-lib';
 import {initGestureDetector} from './src/utils/gestureDetector';
 import {initTaskCache} from './src/cache/taskCache';
-import {markViewOpen} from './src/utils/viewState';
+import {markViewOpen, registerLifecycleDiagnostics} from './src/utils/viewState';
+import {ensureCorePermissions} from './src/utils/permissions';
 
 AppRegistry.registerComponent(appName, () => App);
 
 PluginManager.init();
+
+// SDK 0.1.65 (SNDEV-70 build 1): lifecycle events in log-only mode
+// (cross-checked against manual view marks), and the INTERNET permission
+// check -- if firmware enforces the new permission model, sync must fail
+// loudly in the log, not masquerade as network trouble. Both no-op cleanly
+// on pre-0.1.65 firmware.
+registerLifecycleDiagnostics();
+ensureCorePermissions();
 
 // Hydrate the last session's task snapshot from disk so a cold open paints
 // the list instantly (stale-while-revalidate across process restarts).
