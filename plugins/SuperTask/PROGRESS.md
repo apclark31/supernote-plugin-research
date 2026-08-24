@@ -13,6 +13,32 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 **Session 39 (2026-08-15) -- Testing triage + F-025 v2 select-then-commit completion.** Alex's 2026-08-02 on-device pass closed 21 of the 25 Testing items (device-confirmed passes, plus code-verified+soak closes for the unobservable stability fixes -- rationale on each ticket). The arm-then-confirm double tap was first refined (chip copy/target, 5s window), then **superseded the same session by Alex's design call**: the checkbox reads as *select*, and confirmation belongs above the list, not in the rows. Shipped as **SNDEV-67/F-043**: checkbox taps select (box fills, zero row shift); the TaskHome/ProjectView header band swaps its content to a contextual action bar ("N selected [Complete N] [Clear]" -> "Completed N [Undo] [OK]"); Undo reopens via the Done tab's endpoint; no timers anywhere. New `useTaskSelection` hook + `SelectionBar` component; TaskRow stripped of all arm state. SNDEV-34 closed (Done tab + reopen stays shipped; only the double tap replaced). Current .snplg: 2026-08-15 (~16:00, commit 83f6ea1). **CLOSED same-day after three on-device rounds with log-driven fixes: SNDEV-67 (F-043 selection flow -- incl. undo registry-write race + repaint-fingerprint reset) and SNDEV-49 (B-005 rename healing -- heal now per-data-load not per-process, note-jump joins in-flight heal and auto-retries, heal kicks from cache at mount, prefix-ordered probe).** New working principle from this round (saved to memory): *state changed -> user can see it changed* is an acceptance criterion; every repaint-dedup/cache/background task must wire its refresh path. **Later same day: SNDEV-66 (F-042) and SNDEV-60 (F-038) device-confirmed and closed. F-041 (SNDEV-65) implemented and in Testing (commit 89dcba4): text scale on TaskDetail/TaskAdd/QuickAdd/Capture + the three pickers; Diagnostics deliberately unscaled (11px monospace readouts); TaskList.tsx found to be DEAD CODE (unrouted since the TaskHome rewrite) -- deletion candidate. Testing queue: SNDEV-65 (F-041), SNDEV-37 (F-029 token import -- last item gating T-007/v0.3.0).** New backlog: SNDEV-65 (F-041 text-scale coverage), SNDEV-68 (F-044 completion state in ink -- checkmark write-back on note markers, companion to F-040). T-006/SNDEV-20 half-unblocked: bezel confirmed on dev A5X, external device pending.
 
+## SESSION 40 (2026-08-24) -- sn-plugin-lib 0.1.65: scoping + migration build 1
+
+Ratta shipped SDK 0.1.65 (changelog via dev community). Scoped against the published
+source (`docs/design-sdk065-migration.md`), condensed the philips/supernote-typescript
+vector-format research (`docs/reference-note-vector-format.md`), exact-pinned all three
+package.jsons, then built **build 1 (characterization) on branch `sdk-0.1.65`**
+(commit 6819632; main stays 0.1.43 for the v0.3.0 release). Jira: SNDEV-70 (T-008).
+
+- noteOpener: native-first `openFile` (notes + documents) with intents as compiled-in
+  fallback behind `useNativeOpenFile` (default on); `openFolder` stays intent-only
+  (openFile is file-only). ALL page-base conversion centralized in noteOpener.
+  New APIs are 0-based; only element numsInPage went 1-based.
+- TaskHome same-note jumps use `jumpToPage` (first testable path for the F-026
+  "This Note" jump).
+- viewState: lifecycle listener LOG-ONLY + canHandwrite probes on view open/close
+  (B-031 characterization).
+- permissions.js: startup INTERNET check/request with loud logging (the
+  silent-sync-death guard). No-ops on old firmware.
+- clampRectToPage wired into both text-mark lasso flows (0.1.65 rejects
+  out-of-bounds rects; the 10px pad overflowed at page edges).
+- Index audit: PASSED -- no constructed element indices cross the SDK boundary.
+
+**Precondition for device testing: firmware must be the matching update.** Test plan
+on SNDEV-70. Still open from v0.3.0 (main): SNDEV-65 (F-041 text scale), SNDEV-37
+(F-029 token import).
+
 ## SESSION 39 (2026-08-15) -- testing triage, arm-confirm refinement, CTA copy
 
 Processed Alex's 2026-08-02 test comments across the whole Testing column (25 issues):
