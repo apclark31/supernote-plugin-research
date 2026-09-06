@@ -2,6 +2,21 @@
  * Plugin permissions (Chauvet 3.29.44 / 2.26.41 "plugin permission
  * management", sn-plugin-lib 0.1.65; SNDEV-70, SNDEV-71).
  *
+ * DECLARATION IS MANDATORY: every permission requested here must also be
+ * listed in PluginConfig.json `uses-permissions` (root-level string array),
+ * or requestPermission rejects with error 1500 and NO dialog appears -- the
+ * exact symptom of the 2026-09-06 first device pass. Source:
+ * docs.supernote.com/en/plugin-base/permission. Other facts from that page:
+ *   - requestPermission returns 0 don't allow, 1 allow this time only,
+ *     2 always allow, -1 dialog closed (treat as denied).
+ *   - "Allow this time only" expires when the plugin exits; hasPermission
+ *     then reads 0 again and the explainer / just-in-time ask repeats.
+ *   - After a "don't allow", re-prompting shows a settings-redirect dialog
+ *     (there IS a system settings page for plugin permissions).
+ *   - The plugin's private dir (getPluginDirPath) needs no permission; only
+ *     the six shared folders (incl. MyStyle) do. SDK file APIs return 1501 /
+ *     1503 without WRITE / READ; raw RNFS calls simply fail.
+ *
  * The firmware grants permissions per plugin, one host dialog per permission
  * (Deny / Allow while in use / Always allow). The SDK has no batch call and
  * PluginConfig.json has no declaration, so the dialogs cannot be merged.
@@ -150,10 +165,12 @@ export async function ensurePermissionGroup(id, opts = {}) {
     _askedThisProcess.add(key);
     try {
       const res = unwrap(await PluginManager.requestPermission(key, g.desc));
-      log('Perms', `${SHORT[key]} requestPermission -> ${res} (0=denied,1=while-in-use,2=always) [group ${id}]`);
-      if (res === 0) all = false;
+      log('Perms', `${SHORT[key]} requestPermission -> ${res} (0=denied,1=this-time-only,2=always,-1=closed) [group ${id}]`);
+      if (res !== 1 && res !== 2) all = false;
     } catch (e) {
-      log('Perms', `${SHORT[key]} requestPermission failed: ${e.message}`);
+      // 1500 = not declared in PluginConfig.json uses-permissions; 1502 =
+      // name unsupported on this firmware. Either way: no dialog was shown.
+      log('Perms', `${SHORT[key]} requestPermission FAILED (no dialog shown): ${e.message}`);
       all = false;
     }
   }

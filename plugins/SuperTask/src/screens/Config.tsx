@@ -128,6 +128,9 @@ export default function Config({onNavigate, nav}: Props) {
   const [savedRow, setSavedRow] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState('');
   const [saveFailed, setSaveFailed] = useState(false);
+  // True when the last failed save coincides with the folder permission not
+  // being granted -- the header then names the fix instead of "write failed"
+  const [saveFailedPerm, setSaveFailedPerm] = useState(false);
   const savedTimer = useRef<any>(null);
 
   // Info sheets + transient statuses
@@ -200,6 +203,18 @@ export default function Config({onNavigate, nav}: Props) {
     setConfigSource(getConfigSource());
     setLastSaved(new Date().toLocaleTimeString());
     setSaveFailed(!ok);
+    if (!ok) {
+      try {
+        const snap = await getPermissionStates();
+        const perm = snap.supported && snap.groups.folder !== 'granted';
+        setSaveFailedPerm(perm);
+        if (perm) setPermStates(snap.groups);
+      } catch {
+        setSaveFailedPerm(false);
+      }
+    } else {
+      setSaveFailedPerm(false);
+    }
     setSavedRow(rowKey);
     if (savedTimer.current) clearTimeout(savedTimer.current);
     savedTimer.current = setTimeout(() => setSavedRow(null), 2000);
@@ -388,7 +403,11 @@ export default function Config({onNavigate, nav}: Props) {
         </View>
         <View style={s.headerRight}>
           {saveFailed ? (
-            <Text style={s.headerFail} numberOfLines={1}>Session only — device write failed</Text>
+            <Text style={s.headerFail} numberOfLines={2}>
+              {saveFailedPerm
+                ? 'Not saved — allow "Remember your settings" under Setup > Permissions'
+                : 'Session only — device write failed'}
+            </Text>
           ) : lastSaved ? (
             <Text style={s.headerSaved} numberOfLines={1}>Saved {lastSaved} ✓</Text>
           ) : null}

@@ -80,9 +80,11 @@ export default function PermissionsIntro({onDone}: Props) {
 
         <Text style={[s.footnote, {fontSize: fs(13), lineHeight: fs(19)}]}>
           Tap Continue and Supernote will ask about the folder now (two prompts). Choose
-          "Always allow" and it will not ask again. Todoist access is requested the first
-          time your tasks load; deleting the token file only when you import one. You can
-          review or change any of this later under Settings {'>'} Setup {'>'} Permissions.
+          "Always allow" and it will not ask again; "Allow this time only" lasts until you
+          close the plugin. Todoist access is requested the first time your tasks load;
+          deleting the token file only when you import one. You can review or change any
+          of this later under Settings {'>'} Setup {'>'} Permissions, or in Supernote's own
+          plugin settings.
         </Text>
 
         <Pressable style={[s.primary, busy && s.primaryBusy]} onPress={handleContinue} disabled={busy}>

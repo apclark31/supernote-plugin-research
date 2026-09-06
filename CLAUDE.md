@@ -88,6 +88,7 @@ Key SDK source files to check:
 
 ### Key SDK patterns
 - `PluginManager.init()` must be called at startup
+- **Permissions (firmware 3.29.44+ / lib 0.1.65): declare every permission in `PluginConfig.json` root-level `"uses-permissions": [...]` or `requestPermission` rejects with error 1500 and NO dialog appears.** Names: `plugin.permission.FILE:READ|FILE:WRITE|FILE:DELETE|INTERNET` (the six shared folders incl. MyStyle need them; `getPluginDirPath()` does not). `requestPermission` returns 0 deny / 1 this-time-only (expires on plugin exit) / 2 always / -1 closed. Docs: docs.supernote.com/en/plugin-base/permission. SuperTask's `permissions.js` + `PermissionsIntro.tsx` are the reference implementation (grouped, just-in-time, plain-language).
 - `registerButton(type, appTypes, config)` -- type 1 = toolbar, type 2 = lasso bar, type 3 = selection bar
 - `showType: 0` = headless/background, `showType: 1` = full-screen React Native UI
 - All SDK API calls are async (return Promises)

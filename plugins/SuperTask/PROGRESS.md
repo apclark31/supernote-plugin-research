@@ -69,6 +69,16 @@ session 40 scoped. No re-pin.
    Diagnostics' test-file delete (dev surface) left as is. Device question added:
    does the host count rename-over-existing as a delete? (Config saves failing with
    DELETE denied would be the tell.)
+10. **First device pass (build 1c) FAILED: explainer showed, Continue gave NO system
+    dialog, Settings "device write failed", all groups Not yet; MyStyle/SuperTask did
+    not survive the firmware update + restore (token/registry gone).** Root cause from
+    docs.supernote.com/en/plugin-base/permission: permissions MUST be declared in
+    PluginConfig.json `uses-permissions` or `requestPermission` rejects with 1500,
+    dialog-less. **Build 1d** (14:41): declaration added (verified inside the .snplg),
+    -1 = closed treated as denied, failures log "FAILED (no dialog shown)", Settings
+    header names the missing folder permission instead of "write failed", explainer
+    mentions this-time-only expiry + Supernote's own settings page. Fact recorded in
+    CLAUDE.md. Re-run SNDEV-70 steps 9-12 on 1d.
 
 **Not done / decisions pending Alex:** which branch cuts the v0.3.0 GitHub release --
 the user group is on 3.29.44, so `sdk-0.1.65` is the candidate, but only after its

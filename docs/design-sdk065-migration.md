@@ -142,6 +142,20 @@ on Android), cache invalidation overwrites with `{}`, log rotation is
 copy+truncate. Whether the host counts rename-replace as a delete is a device
 question — if config saves fail with FILE:DELETE denied, that is the tell.
 
+**First device pass (2026-09-06, Alex, 3.29.44):** explainer showed, Continue produced
+NO system dialog, Settings read "Session only — device write failed", all groups
+"Not yet". Root cause from docs.supernote.com/en/plugin-base/permission (not in
+the SDK JSDoc or changelog): **permissions must be declared in PluginConfig.json
+`uses-permissions`** or `requestPermission` rejects with 1500 — the guard logged
+the failure and moved on, dialog-less. Fixed in build 1d (declaration added; the
+build script's jq edit preserves the field). Same page: return -1 = dialog
+closed (now treated as denied); "Allow this time only" expires on plugin exit;
+a prior "Don't allow" makes re-prompts a settings-redirect dialog (so a system
+plugin-permissions page exists); the plugin's private dir needs no permission;
+SDK file APIs return 1501/1503 without WRITE/READ, raw RNFS just fails (which is
+what "device write failed" was). Also: MyStyle/SuperTask did NOT survive the
+firmware update + restore on Alex's device — token and registry gone.
+
 **Scope discipline (Alex):** the token import used to sweep the top level of
 all six sync roots — FILE:READ far beyond the feature's need. It now looks
 only in `MyStyle/SuperTask` (the folder the plugin already creates for
