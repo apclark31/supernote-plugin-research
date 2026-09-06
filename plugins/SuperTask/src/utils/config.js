@@ -73,6 +73,11 @@ const DEFAULT_CONFIG = {
   showDoneTasks: false,
   // Accessibility text scale: 1 / 1.15 / 1.3 (F-031)
   fontScale: 1,
+  // B-033: one-shot native view invalidate after TaskHome's first content
+  // paint, to clear the note ghost left by the partial refresh on open.
+  // On by default; the toggle exists because the visible cost (a flash)
+  // is device-verified only, not measured here.
+  refreshOnOpen: true,
 };
 
 // Fields that get obfuscated on disk

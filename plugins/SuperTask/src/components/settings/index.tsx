@@ -26,11 +26,14 @@ function useFs() {
 
 // ── Section ────────────────────────────────────────────────
 
-export function Section({title, first, children}: {title: string; first?: boolean; children: React.ReactNode}) {
+export function Section({title, first, onInfo, children}: {title: string; first?: boolean; onInfo?: () => void; children: React.ReactNode}) {
   const fs = useFs();
   return (
     <View style={[st.section, !first && st.sectionRule]}>
-      <Text style={[st.sectionTitle, {fontSize: fs(18)}]}>{title}</Text>
+      <View style={st.sectionTitleRow}>
+        <Text style={[st.sectionTitle, {fontSize: fs(18)}]}>{title}</Text>
+        {onInfo ? <InfoButton onPress={onInfo} /> : null}
+      </View>
       {children}
     </View>
   );
@@ -232,11 +235,16 @@ const st = StyleSheet.create({
     borderTopColor: '#000000',
     marginTop: 4,
   },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: '#000000',
-    marginBottom: 10,
     letterSpacing: 0.5,
   },
   row: {

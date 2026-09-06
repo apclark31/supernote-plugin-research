@@ -121,6 +121,7 @@ export default function Config({onNavigate, nav}: Props) {
   const [debugMode, setDebugMode] = useState(cfg0?.debugMode === true);
   const [debugServerUrl, setDebugServerUrlField] = useState(cfg0?.debugServerUrl || '');
   const [fontScale, setFontScaleField] = useState(cfg0?.fontScale || 1);
+  const [refreshOnOpen, setRefreshOnOpen] = useState(cfg0?.refreshOnOpen !== false);
   const [importStatus, setImportStatus] = useState('');
 
   // Apply-on-change feedback
@@ -130,7 +131,7 @@ export default function Config({onNavigate, nav}: Props) {
   const savedTimer = useRef<any>(null);
 
   // Info sheets + transient statuses
-  const [infoSheet, setInfoSheet] = useState<'token' | 'gesture' | 'server' | 'postCreate' | 'permissions' | null>(null);
+  const [infoSheet, setInfoSheet] = useState<'token' | 'gesture' | 'server' | 'postCreate' | 'permissions' | 'opening' | 'capturing' | 'projects' | 'debugging' | null>(null);
   // Chauvet 3.29.44 per-plugin permissions: null = firmware has no permission
   // model (pre-0.1.65); otherwise short-name -> 1 granted / 0 not / null error
   const [permStates, setPermStates] = useState<Record<string, number | null> | null>(null);
@@ -163,6 +164,7 @@ export default function Config({onNavigate, nav}: Props) {
       setThreeFingerTapEnabled(config.threeFingerTapEnabled === true);
       if (config.debugServerUrl) setDebugServerUrlField(config.debugServerUrl);
       if (config.fontScale) setFontScaleField(config.fontScale);
+      setRefreshOnOpen(config.refreshOnOpen !== false);
 
       setConfigSource(getConfigSource());
       refreshPermissions();
@@ -348,6 +350,16 @@ export default function Config({onNavigate, nav}: Props) {
     {key: null as string | null, label: 'None'},
     ...projects.map(p => ({key: p.id as string | null, label: p.name as string})),
   ];
+  // F-036 coupling: the default project is a WRITE default, "Show projects"
+  // is a READ filter. A default that is unticked under Show projects still
+  // receives every new task, but Today/Upcoming/Done hide it -- warn on the
+  // row instead of silently dropping the saved value. Empty enabled list =
+  // nothing is filtered.
+  const defaultProjectHidden =
+    !!defaultProjectId &&
+    enabledProjectIds.length > 0 &&
+    !enabledProjectIds.includes(defaultProjectId);
+  const defaultProjectName = projects.find(p => p.id === defaultProjectId)?.name;
 
   // ── Render ───────────────────────────────────────────────
 
@@ -498,7 +510,7 @@ export default function Config({onNavigate, nav}: Props) {
         {/* ── General page ── */}
         {page === 'general' && (
         <>
-        <Section title="OPENING SUPERTASK" first>
+        <Section title="OPENING SUPERTASK" first onInfo={() => setInfoSheet('opening')}>
           <SettingRow
             label="Default tab"
             hint="Where SuperTask lands on a fresh open. Last opened returns to whatever tab you were on when you closed it."
@@ -555,10 +567,22 @@ export default function Config({onNavigate, nav}: Props) {
               }}
             />
           </SettingRow>
+
+          <CheckRow
+            checked={refreshOnOpen}
+            onToggle={() => {
+              const v = !refreshOnOpen;
+              setRefreshOnOpen(v);
+              applyChange('refreshOnOpen', {refreshOnOpen: v});
+            }}
+            label="Clear ghosting on open"
+            hint="Repaints the screen once, right after the task list first appears, so the note underneath does not show through. Turn off if you would rather not have the extra flash."
+            saved={savedRow === 'refreshOnOpen'}
+          />
         </Section>
 
         {/* ── Capturing Tasks ── */}
-        <Section title="CAPTURING TASKS">
+        <Section title="CAPTURING TASKS" onInfo={() => setInfoSheet('capturing')}>
           <SettingRow
             label="Quick Add gesture"
             onInfo={() => setInfoSheet('gesture')}
@@ -597,11 +621,39 @@ export default function Config({onNavigate, nav}: Props) {
               }}
             />
           </SettingRow>
+
+          {/* F-036: a WRITE default belongs with the creation flow, not with
+              the visibility filter. Own guard: with no projects loaded the
+              control would be a lone "None" cell. */}
+          {projects.length > 0 && (
+            <SettingRow
+              label="Default project for new tasks"
+              hint="Where a captured task lands unless you pick a project in the form"
+              saved={savedRow === 'defaultProject'}>
+              <Segmented
+                options={projectOptions}
+                value={defaultProjectId}
+                onChange={v => {
+                  setDefaultProjectId(v);
+                  applyChange('defaultProject', {defaultProjectId: v});
+                }}
+              />
+              {defaultProjectHidden && (
+                <View style={s.notice}>
+                  <Text style={s.noticeText}>
+                    {defaultProjectName || 'This project'} is unticked under Projects &gt; Show
+                    projects. New tasks will still be created there, but they will not
+                    appear on Today, Upcoming, or Done until you tick it again.
+                  </Text>
+                </View>
+              )}
+            </SettingRow>
+          )}
         </Section>
 
         {/* ── Projects ── */}
         {projects.length > 0 && (
-          <Section title="PROJECTS">
+          <Section title="PROJECTS" onInfo={() => setInfoSheet('projects')}>
             <SettingRow
               label="Show projects"
               hint="Untick projects to hide them across SuperTask"
@@ -617,17 +669,6 @@ export default function Config({onNavigate, nav}: Props) {
                 ))}
               </View>
             </SettingRow>
-
-            <SettingRow label="Default project for new tasks" saved={savedRow === 'defaultProject'}>
-              <Segmented
-                options={projectOptions}
-                value={defaultProjectId}
-                onChange={v => {
-                  setDefaultProjectId(v);
-                  applyChange('defaultProject', {defaultProjectId: v});
-                }}
-              />
-            </SettingRow>
           </Section>
         )}
         </>
@@ -635,7 +676,7 @@ export default function Config({onNavigate, nav}: Props) {
 
         {/* ── Setup page: Debugging ── */}
         {page === 'setup' && (
-        <Section title="DEBUGGING">
+        <Section title="DEBUGGING" onInfo={() => setInfoSheet('debugging')}>
           <CheckRow
             checked={debugMode}
             onToggle={() => {
@@ -734,6 +775,65 @@ export default function Config({onNavigate, nav}: Props) {
           {label: 'Mac', body: '1. Install Node.js from nodejs.org (or: brew install node)\n2. Open Terminal\n3. cd into the folder where you saved dev-server.js\n4. Run: node dev-server.js\n\nThe server prints its address, e.g. http://192.168.1.20:3000/log -- enter that in the field, then tap Test.'},
           {label: 'Windows', body: '1. Install Node.js from nodejs.org\n2. Open PowerShell (or Command Prompt)\n3. cd into the folder where you saved dev-server.js\n4. Run: node dev-server.js\n5. If Windows Firewall asks, click Allow (private networks)\n\nEnter the printed address in the field, then tap Test.'},
           {label: 'If Test fails', body: "Supernote and computer must be on the SAME wifi network. Use the computer's LAN IP address (192.168.x.x) -- Android cannot resolve .local names. If your computer's IP changed, the server prints the new one on startup; update the field here (no reinstall needed)."},
+        ]}
+        onClose={() => setInfoSheet(null)}
+      />
+
+      {/* F-028: one (?) per section. Copy states what the feature does and
+          what it means; mechanics (thresholds, cooldowns) are named so the
+          behaviour is predictable, not mysterious. */}
+      <InfoSheet
+        visible={infoSheet === 'opening'}
+        title="Opening SuperTask"
+        intro="Ways to get to your task list from a note, and what to expect once you are there."
+        sections={[
+          {label: 'Toolbar button', body: 'Tap SuperTask in the note toolbar plugin menu. Always available; nothing to enable.'},
+          {label: 'Bezel swipe (optional)', body: 'With two or more fingers, swipe up from the very bottom edge of the page, about a finger length. Off by default. It only counts when the swipe starts in the bottom edge zone, so ordinary scrolling and a resting hand do not trigger it.'},
+          {label: 'Three-finger double tap (optional)', body: 'Tap twice quickly with three fingers anywhere on the page. Off by default, because a palm landing on the screen can look like it. If you write with your hand on the screen, prefer the bezel swipe.'},
+          {label: 'Long press on a task link', body: 'Hold one finger on the dashed box around a captured task for about a second to open that task directly. Always on -- it needs a link under your finger, so nothing accidental can fire it.'},
+          {label: 'Pen cooldown', body: 'For 1.5 seconds after any pen contact, finger gestures are ignored. This is what stops your palm from opening SuperTask mid-sentence. Pause briefly after writing before you gesture.'},
+          {label: 'Default tab', body: 'The tab SuperTask opens on. "Last opened" returns you to whatever tab you were on when you closed it.'},
+          {label: 'Completing tasks', body: 'Tap a task\'s box to select it; tap more to select several. A bar at the top shows Complete and Clear. After completing, the same bar offers Undo until you tap OK.'},
+        ]}
+        onClose={() => setInfoSheet(null)}
+      />
+
+      <InfoSheet
+        visible={infoSheet === 'capturing'}
+        title="Capturing tasks"
+        intro="Turn handwriting into a Todoist task without leaving the note."
+        sections={[
+          {label: 'Lasso, then Add Task', body: 'Lasso some handwriting with the pen and tap Add Task in the lasso toolbar. SuperTask recognizes the writing, lets you fix the title and pick a date, priority, and project, then creates the task in Todoist with a link back to this note and page.'},
+          {label: 'Done vs Convert to Text', body: 'After the task is created, Done leaves your handwriting as it is and draws a dashed link box around it. Convert to Text replaces the handwriting with typed text in the same box. Either way the box is a link: long-press it to open the task.'},
+          {label: 'Quick Add gesture', body: 'An optional shortcut that skips the toolbar button. Off by default; see the (?) next to that setting.'},
+          {label: 'After creating a task', body: 'Whether the form stays open to add another task, or returns you to the note. See its (?).'},
+          {label: 'Mark-as-text font size', body: 'The size of the typed text used by Convert to Text.'},
+          {label: 'Default project', body: 'Where a new task lands in Todoist unless you choose a different project in the form. If that project is hidden under Projects, this row warns you.'},
+        ]}
+        onClose={() => setInfoSheet(null)}
+      />
+
+      <InfoSheet
+        visible={infoSheet === 'projects'}
+        title="Projects"
+        intro="Which Todoist projects SuperTask shows."
+        sections={[
+          {label: 'Show projects', body: 'Untick a project to hide its tasks from the Today, Upcoming, and Done tabs. Hidden projects can still be chosen in the project picker when you create or edit a task.'},
+          {label: 'What is never filtered', body: 'The On Device tab and the This Note panel always show every task you captured from your notes, whatever its project -- they answer "what did I write down here?", not "what is due?".'},
+          {label: 'Default project', body: 'Lives under Capturing Tasks. If the project chosen as the default is unticked here, new tasks still go there but will not appear in your lists; that row shows a warning.'},
+        ]}
+        onClose={() => setInfoSheet(null)}
+      />
+
+      <InfoSheet
+        visible={infoSheet === 'debugging'}
+        title="Debugging"
+        intro="Tools for troubleshooting. Nothing here is needed for everyday use."
+        sections={[
+          {label: 'Debug mode', body: 'Adds Log buttons to screens and unlocks the Debug log and Diagnostics rows below. It does not change how SuperTask behaves.'},
+          {label: 'Where logs live', body: 'SuperTask always keeps a log on the device at MyStyle/SuperTask/logs/session.log (two rotating files, about 1 MB total). Attach that file to a bug report. It records what the plugin did, including task titles and note names, but never your API token.'},
+          {label: 'Debug log server', body: 'Optional: stream the same log live to a computer on your own wifi while you reproduce a problem. Set-up steps are under that row\'s (?).'},
+          {label: 'Diagnostics', body: 'A live readout of touch and pen events, used for tuning gestures.'},
         ]}
         onClose={() => setInfoSheet(null)}
       />

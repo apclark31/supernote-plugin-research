@@ -12,7 +12,7 @@ import {
   FlatList,
   StyleSheet,
 } from 'react-native';
-import {PluginManager, PluginCommAPI, PluginFileAPI} from 'sn-plugin-lib';
+import {PluginManager, PluginCommAPI, PluginFileAPI, NativePluginManager} from 'sn-plugin-lib';
 import {closePlugin} from '../utils/closePlugin';
 import {getTasksForNote, getAllTasks as getAllRegistryTasks, removeTask, markCompleted, getTask as getRegistryTask} from '../utils/taskRegistry';
 import {openNote, jumpWithinNote} from '../utils/noteOpener';
@@ -109,6 +109,38 @@ export default function TaskHome({nav, focusTab}: Props) {
   // tab, same row pattern as the Done tab (filled box, Done chip, reopen)
   const [showDone, setShowDone] = useState(cfg0?.showDoneTasks === true);
 
+  // B-033 (SNDEV-69): the plugin view appears via partial refresh, and the
+  // mostly-white first frames leave the note's top half ghosting through
+  // until a later repaint touches those pixels. The SDK's native module has
+  // an unwrapped invalidatePluginView() ("Refresh plugin view"); fire it ONCE,
+  // shortly after the first real content commit (loading -> false), so the
+  // frame the user actually looks at is the one that gets the full repaint.
+  // Config-gated (refreshOnOpen, default on) because the visible cost is
+  // only knowable on-device.
+  const refreshedRef = useRef(false);
+  useEffect(() => {
+    if (loading || refreshedRef.current) return;
+    refreshedRef.current = true;
+    if (cfg0?.refreshOnOpen === false) {
+      log('TaskHome', 'B-033 refresh-on-open: disabled by config');
+      return;
+    }
+    const fn = (NativePluginManager as any)?.invalidatePluginView;
+    if (typeof fn !== 'function') {
+      log('TaskHome', 'B-033 refresh-on-open: invalidatePluginView unavailable');
+      return;
+    }
+    const t = setTimeout(() => {
+      try {
+        fn.call(NativePluginManager);
+        log('TaskHome', 'B-033 refresh-on-open: invalidatePluginView() fired');
+      } catch (e: any) {
+        log('TaskHome', `B-033 refresh-on-open failed: ${e.message}`);
+      }
+    }, 150);
+    return () => clearTimeout(t);
+  }, [loading]);
+
   // Load default tab from config and detect current page on mount
   useEffect(() => {
     // Cold-start corrector: on warm opens these all match the cfg0-seeded
@@ -159,8 +191,21 @@ export default function TaskHome({nav, focusTab}: Props) {
 
         const fileName = filePath.split('/').pop()?.replace('.note', '') || '';
         const noteFile = filePath.split('/').pop() || '';
-        setNoteCtx({fileName, pageNum, filePath});
         log('TaskHome', `Note context: ${fileName} p.${pageNum}`);
+
+        // B-033 mitigation A: read the (fast, local) registry FIRST and
+        // commit it together with the note context in one synchronous block,
+        // so the This Note band paints once instead of twice. The ~3s
+        // element scan below then adds page chips as a single later commit.
+        let regTasks: any[] = [];
+        try {
+          regTasks = await getTasksForNote(noteFile);
+          log('TaskHome', `Registry: ${regTasks.length} tasks in this note`);
+        } catch (e: any) {
+          log('TaskHome', `Registry read failed: ${e.message}`);
+        }
+        setNoteCtx({fileName, pageNum, filePath});
+        setRegistryNoteTasks(regTasks);
 
         // Scan page elements for supertask:// links
         try {
@@ -183,16 +228,6 @@ export default function TaskHome({nav, focusTab}: Props) {
           }
         } catch (e: any) {
           log('TaskHome', `Element scan failed: ${e.message}`);
-        }
-
-        // Read from local registry -- ALL tasks in this note (any page),
-        // so the This Note band shows where each one lives in a long note
-        try {
-          const regTasks = await getTasksForNote(noteFile);
-          setRegistryNoteTasks(regTasks);
-          log('TaskHome', `Registry: ${regTasks.length} tasks in this note`);
-        } catch (e: any) {
-          log('TaskHome', `Registry read failed: ${e.message}`);
         }
       } catch (e: any) {
         log('TaskHome', `Page context detection failed: ${e.message}`);

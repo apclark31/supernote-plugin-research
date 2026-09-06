@@ -1,5 +1,12 @@
 /**
  * TaskDetail - View/edit/complete/delete a task
+ *
+ * F-037: visually aligned with Settings v2 (header band with 2px rule and a
+ * persistent "Saved HH:MM" status, 2px bordered inputs, SettingRow-style
+ * labels) while keeping the EXPLICIT Save: edits go to the Todoist API over
+ * wifi, so per-field autosave would be slow, failable, and easy to lose --
+ * see SNDEV-58 for the analysis. Button order is Save (primary) then Mark
+ * Complete (outlined) so the terminal action never carries primary weight.
  */
 
 import React, {useState, useEffect} from 'react';
@@ -68,6 +75,8 @@ export default function TaskDetail({nav, task, projects}: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [viewNoteStatus, setViewNoteStatus] = useState('');
+  // F-037: header status, same vocabulary as Settings ("Saved 14:02 ✓")
+  const [lastSaved, setLastSaved] = useState('');
 
   const handleViewNote = async () => {
     if (!noteContext) return;
@@ -151,8 +160,8 @@ export default function TaskDetail({nav, task, projects}: Props) {
       task.priority = priority;
       task.due = dueString.trim() ? {...(task.due || {}), string: dueString.trim()} : task.due;
       task.project_id = projectId;
-      setStatus('Saved');
-      setTimeout(() => setStatus(''), 1500);
+      setStatus('');
+      setLastSaved(new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}));
     } catch (err: any) {
       logError('TaskDetail', err);
       setStatus(`Error: ${err.message}`);
@@ -216,29 +225,36 @@ export default function TaskDetail({nav, task, projects}: Props) {
     <View style={styles.wrapper}>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
-        <Pressable onPress={() => {
-          if (nav.canGoBack) {
-            log('TaskDetail', 'BACK pressed');
-            nav.pop();
-          } else {
-            log('TaskDetail', 'BACK pressed (deep link) -- closing plugin');
-            closePlugin();
-          }
-        }}>
-          <Text style={[styles.backText, {fontSize: Math.round(15 * scale)}]}>{nav.canGoBack ? '< Back' : '< Note'}</Text>
-        </Pressable>
-        {!nav.canGoBack ? (
-          <Pressable onPress={() => { log('TaskDetail', 'All Tasks pressed'); nav.resetTo('task-home'); }}>
-            <Text style={[styles.headerTitleLink, {fontSize: Math.round(18 * scale)}]}>{'View all tasks >'}</Text>
+        <View style={styles.headerLeft}>
+          <Pressable style={styles.headerBtn} onPress={() => {
+            if (nav.canGoBack) {
+              log('TaskDetail', 'BACK pressed');
+              nav.pop();
+            } else {
+              log('TaskDetail', 'BACK pressed (deep link) -- closing plugin');
+              closePlugin();
+            }
+          }}>
+            <Text style={[styles.headerBtnText, {fontSize: Math.round(15 * scale)}]}>{nav.canGoBack ? 'Back' : 'Note'}</Text>
           </Pressable>
-        ) : (
-          <Text style={[styles.headerTitle, {fontSize: Math.round(20 * scale)}]}>Edit Task</Text>
-        )}
-        <Pressable onPress={handleDelete}>
-          <Text style={[styles.deleteText, {fontSize: Math.round(15 * scale)}]}>
-            {confirmDelete ? 'Confirm Delete' : 'Delete'}
-          </Text>
-        </Pressable>
+          {!nav.canGoBack ? (
+            <Pressable onPress={() => { log('TaskDetail', 'All Tasks pressed'); nav.resetTo('task-home'); }}>
+              <Text style={[styles.headerTitleLink, {fontSize: Math.round(18 * scale)}]}>{'View all tasks >'}</Text>
+            </Pressable>
+          ) : (
+            <Text style={[styles.headerTitle, {fontSize: Math.round(20 * scale)}]}>Edit Task</Text>
+          )}
+        </View>
+        <View style={styles.headerRight}>
+          {lastSaved ? (
+            <Text style={[styles.headerSaved, {fontSize: Math.round(13 * scale)}]} numberOfLines={1}>Saved {lastSaved} ✓</Text>
+          ) : null}
+          <Pressable style={[styles.headerBtn, confirmDelete && styles.headerBtnDanger]} onPress={handleDelete}>
+            <Text style={[styles.headerBtnText, confirmDelete && styles.headerBtnDangerText, {fontSize: Math.round(15 * scale)}]}>
+              {confirmDelete ? 'Confirm Delete' : 'Delete'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       {noteContext && (
@@ -321,19 +337,19 @@ export default function TaskDetail({nav, task, projects}: Props) {
       )}
 
       <Pressable
-        style={[styles.completeButton]}
-        onPress={handleComplete}
-        disabled={saving}>
-        <Text style={[styles.completeText, {fontSize: Math.round(18 * scale)}]}>Mark Complete</Text>
-      </Pressable>
-
-      <Pressable
         style={[styles.saveButton, (!isDirty || saving) && styles.buttonDisabled]}
         onPress={handleSave}
         disabled={!isDirty || saving}>
         <Text style={[styles.saveText, (!isDirty || saving) && styles.saveTextDisabled, {fontSize: Math.round(18 * scale)}]}>
           {saving ? 'Saving...' : 'Save Changes'}
         </Text>
+      </Pressable>
+
+      <Pressable
+        style={[styles.completeButton]}
+        onPress={handleComplete}
+        disabled={saving}>
+        <Text style={[styles.completeText, {fontSize: Math.round(18 * scale)}]}>Mark Complete</Text>
       </Pressable>
 
     </ScrollView>
@@ -355,18 +371,59 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
   },
+  // F-037: the Settings v2 header band -- 2px rule, bordered buttons,
+  // status on the right. Sits inside the scroll so it scrolls with the form.
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    paddingVertical: 14,
+    marginBottom: 20,
+    marginHorizontal: -20,
+    paddingHorizontal: 20,
+    borderBottomWidth: 2,
+    borderBottomColor: '#000000',
+    gap: 12,
   },
-  backText: {
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flexShrink: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexShrink: 1,
+  },
+  headerBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    backgroundColor: '#ffffff',
+  },
+  headerBtnText: {
     fontSize: 15,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  headerBtnDanger: {
+    backgroundColor: '#000000',
+  },
+  headerBtnDangerText: {
+    color: '#ffffff',
+  },
+  headerSaved: {
+    fontSize: 13,
     fontWeight: '600',
     color: '#000000',
+    flexShrink: 1,
   },
   headerTitle: {
     fontSize: 20,
@@ -380,11 +437,6 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     paddingVertical: 4,
     paddingHorizontal: 8,
-  },
-  deleteText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#000000',
   },
   noteContext: {
     borderWidth: 1,
@@ -438,7 +490,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   input: {
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: '#000000',
     borderRadius: 4,
     padding: 12,
@@ -466,7 +518,7 @@ const styles = StyleSheet.create({
     borderColor: '#000000',
     borderRadius: 4,
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   completeText: {
     fontSize: 18,
@@ -480,7 +532,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     alignItems: 'center',
     backgroundColor: '#000000',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   buttonDisabled: {
     backgroundColor: '#ffffff',
