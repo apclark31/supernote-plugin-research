@@ -75,8 +75,8 @@ const DEFAULT_CONFIG = {
   fontScale: 1,
   // B-033: one-shot native view invalidate after TaskHome's first content
   // paint, to clear the note ghost left by the partial refresh on open.
-  // On by default; the toggle exists because the visible cost (a flash)
-  // is device-verified only, not measured here.
+  // Device-confirmed 2026-09-06 (no visible cost), so there is no UI row --
+  // this is a hidden kill switch, editable in supertask-config.json over USB.
   refreshOnOpen: true,
 };
 

@@ -121,7 +121,6 @@ export default function Config({onNavigate, nav}: Props) {
   const [debugMode, setDebugMode] = useState(cfg0?.debugMode === true);
   const [debugServerUrl, setDebugServerUrlField] = useState(cfg0?.debugServerUrl || '');
   const [fontScale, setFontScaleField] = useState(cfg0?.fontScale || 1);
-  const [refreshOnOpen, setRefreshOnOpen] = useState(cfg0?.refreshOnOpen !== false);
   const [importStatus, setImportStatus] = useState('');
   // Import is only a live button while supertask-token.txt is actually in
   // MyStyle/SuperTask -- so the option reads as real when it applies and
@@ -175,7 +174,6 @@ export default function Config({onNavigate, nav}: Props) {
       setThreeFingerTapEnabled(config.threeFingerTapEnabled === true);
       if (config.debugServerUrl) setDebugServerUrlField(config.debugServerUrl);
       if (config.fontScale) setFontScaleField(config.fontScale);
-      setRefreshOnOpen(config.refreshOnOpen !== false);
 
       setConfigSource(getConfigSource());
       refreshPermissions();
@@ -625,18 +623,6 @@ export default function Config({onNavigate, nav}: Props) {
               }}
             />
           </SettingRow>
-
-          <CheckRow
-            checked={refreshOnOpen}
-            onToggle={() => {
-              const v = !refreshOnOpen;
-              setRefreshOnOpen(v);
-              applyChange('refreshOnOpen', {refreshOnOpen: v});
-            }}
-            label="Clear ghosting on open"
-            hint="Repaints the screen once, right after the task list first appears, so the note underneath does not show through. Turn off if you would rather not have the extra flash."
-            saved={savedRow === 'refreshOnOpen'}
-          />
         </Section>
 
         {/* ── Capturing Tasks ── */}
