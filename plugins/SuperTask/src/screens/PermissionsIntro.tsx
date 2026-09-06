@@ -78,11 +78,12 @@ export default function PermissionsIntro({onDone}: Props) {
         })}
 
         <View style={s.callout}>
-          <Text style={[s.calloutTitle, {fontSize: fs(16)}]}>Recommended: "Always allow"</Text>
+          <Text style={[s.calloutTitle, {fontSize: fs(16)}]}>
+            We recommend selecting "Always allow" to ensure smooth operation of the plugin.
+          </Text>
           <Text style={[s.calloutBody, {fontSize: fs(14), lineHeight: fs(20)}]}>
-            It is your choice on each prompt. "Allow this time only" lasts until you close
-            the plugin, so it will ask again next time. "Don't allow" switches that part of
-            SuperTask off.
+            "Allow this time only" lasts until you close the plugin, so it will ask again
+            next time. "Don't allow" switches that part of SuperTask off.
           </Text>
         </View>
         <Text style={[s.footnote, {fontSize: fs(13), lineHeight: fs(19)}]}>
