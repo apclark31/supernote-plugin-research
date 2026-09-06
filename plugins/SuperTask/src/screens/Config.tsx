@@ -26,7 +26,7 @@ import {loadConfig, saveConfig, getCachedConfig, getConfigSource, wasTemplateGen
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
 import {reloadGestureConfig} from '../utils/gestureDetector';
-import {importTokenFromFile, TOKEN_DIR_LABEL} from '../utils/tokenImport';
+import {importTokenFromFile, findTokenFile, TOKEN_DIR_LABEL} from '../utils/tokenImport';
 import {PERMISSION_GROUPS, getPermissionStates, ensurePermissionGroup} from '../utils/permissions';
 import {FONT_SCALE_STEPS} from '../utils/fontScale';
 import {
@@ -123,6 +123,14 @@ export default function Config({onNavigate, nav}: Props) {
   const [fontScale, setFontScaleField] = useState(cfg0?.fontScale || 1);
   const [refreshOnOpen, setRefreshOnOpen] = useState(cfg0?.refreshOnOpen !== false);
   const [importStatus, setImportStatus] = useState('');
+  // Import is only a live button while supertask-token.txt is actually in
+  // MyStyle/SuperTask -- so the option reads as real when it applies and
+  // as instructions when it doesn't. Re-checked on mount, whenever the
+  // token sheet closes, and after every import attempt.
+  const [tokenFilePresent, setTokenFilePresent] = useState(false);
+  const checkTokenFile = async () => {
+    setTokenFilePresent(!!(await findTokenFile()));
+  };
 
   // Apply-on-change feedback
   const [savedRow, setSavedRow] = useState<string | null>(null);
@@ -171,6 +179,7 @@ export default function Config({onNavigate, nav}: Props) {
 
       setConfigSource(getConfigSource());
       refreshPermissions();
+      checkTokenFile();
 
       if (config.apiToken) {
         try {
@@ -253,6 +262,7 @@ export default function Config({onNavigate, nav}: Props) {
       if (config.apiToken) setToken(config.apiToken);
       setConfigSource(getConfigSource());
     }
+    checkTokenFile();
   };
 
   // ── Permissions (Chauvet 3.29.44) ───────────────────────
@@ -455,13 +465,25 @@ export default function Config({onNavigate, nav}: Props) {
 
           <SettingRow
             label="Import token from file"
-            hint={`Put supertask-token.txt in ${TOKEN_DIR_LABEL}, then tap Import. Tap ? for steps.`}
+            hint={
+              tokenFilePresent
+                ? `supertask-token.txt found in ${TOKEN_DIR_LABEL}. Tap Import to use it.`
+                : `Put supertask-token.txt in ${TOKEN_DIR_LABEL} and Import becomes available. Tap ? for steps.`
+            }
             onInfo={() => setInfoSheet('token')}
             saved={savedRow === 'token'}>
             <View style={s.inputRow}>
-              <Pressable style={s.btnAction} onPress={handleImportToken}>
-                <Text style={s.btnActionText}>Import</Text>
+              <Pressable
+                style={[s.btnAction, !tokenFilePresent && s.btnActionDisabled]}
+                onPress={handleImportToken}
+                disabled={!tokenFilePresent}>
+                <Text style={[s.btnActionText, !tokenFilePresent && s.btnActionTextDisabled]}>Import</Text>
               </Pressable>
+              {!tokenFilePresent && (
+                <Pressable style={s.btnSmall} onPress={checkTokenFile}>
+                  <Text style={s.btnSmallText}>Check again</Text>
+                </Pressable>
+              )}
             </View>
             {importStatus ? <Text style={s.statusInline}>{importStatus}</Text> : null}
           </SettingRow>
@@ -772,11 +794,11 @@ export default function Config({onNavigate, nav}: Props) {
         title="How to enter your API token"
         intro={'1. Go to todoist.com/prefs/integrations and scroll to "API token" to find yours.\n\n2. Pick one of the options below. You only need to do this once: the token is saved on the device in an obscured form and survives reinstalls.'}
         sections={[
-          {label: 'Option 1. Sync a token file from the Supernote Partner app (recommended)', body: 'From your phone or computer, create a plain text file named **supertask-token.txt** containing only the token.\n\nPut it in the **MyStyle/SuperTask** folder on your Supernote using the Supernote Partner app, Supernote Cloud, or USB.\n\nThen tap **Import** above. SuperTask saves the token and deletes the file. Only that one folder is checked.'},
-          {label: 'Option 2. Paste or type it here', body: 'Pair a Bluetooth keyboard (Supernote Settings > Bluetooth), tap the token field, paste with Ctrl+V or type it, then tap **Save**. The on-screen keyboard works too, just slowly.'},
-          {label: 'Option 3. Edit the config file over USB (advanced)', body: 'Connect to a computer, open **MyStyle/SuperTask/supertask-config.json** in a text editor, replace the apiToken value with your token, save, and reopen the plugin. It is obscured on the next load.'},
+          {label: 'Option 1. Sync a token file from the Supernote Partner app (recommended)', body: 'From your phone or computer, create a plain text file named **supertask-token.txt** containing only the token.\n\nPut it in the **MyStyle/SuperTask** folder on your Supernote using the Supernote Partner app, Supernote Cloud, or USB.\n\nClose this sheet. Once the file is in place, the **Import** button on the Setup page becomes available; tap it and SuperTask saves the token and deletes the file. Only that one folder is checked.'},
+          {label: 'Option 2. Paste the token with a Bluetooth keyboard', body: 'Pair a Bluetooth keyboard (Supernote Settings > Bluetooth), tap the **Todoist API token** field on the Setup page, paste with Ctrl+V, then tap **Save**.\n\nAs a last resort, you can type the token into that field with the on-screen keyboard.'},
+          {label: 'Option 3. Edit the config file over USB', body: 'Connect to a computer, open **MyStyle/SuperTask/supertask-config.json** in a text editor, replace the apiToken value with your token, save, and reopen the plugin. It is obscured on the next load.'},
         ]}
-        onClose={() => setInfoSheet(null)}
+        onClose={() => { setInfoSheet(null); checkTokenFile(); }}
       />
 
       <InfoSheet
@@ -1002,6 +1024,13 @@ const s = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     alignSelf: 'flex-start',
+  },
+  btnActionDisabled: {
+    borderColor: '#999999',
+    backgroundColor: '#ffffff',
+  },
+  btnActionTextDisabled: {
+    color: '#999999',
   },
   btnActionText: {
     fontSize: 15,

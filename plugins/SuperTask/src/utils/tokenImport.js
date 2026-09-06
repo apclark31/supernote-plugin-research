@@ -33,6 +33,28 @@ export const TOKEN_DIR_LABEL = 'MyStyle/SuperTask';
 const SCAN_ROOTS = [TOKEN_DIR];
 
 /**
+ * Is a token file waiting in the plugin folder? Drives the Import button's
+ * enabled state so the option is visibly real only when it applies.
+ * Read failures (no FILE:READ yet, folder missing) count as "not present".
+ * @returns {Promise<string|null>} full path, or null
+ */
+export async function findTokenFile() {
+  try {
+    if (!FileUtils?.listFiles) return null;
+    const files = (await FileUtils.listFiles(TOKEN_DIR)) || [];
+    const hit = files
+      .map(f => (typeof f === 'string' ? f : f?.path || ''))
+      .find(f => f.toLowerCase().endsWith('/' + TOKEN_FILENAME) ||
+                 f.toLowerCase() === TOKEN_FILENAME);
+    if (!hit) return null;
+    return hit.startsWith('/') ? hit : `${TOKEN_DIR}/${hit}`;
+  } catch (e) {
+    log('TokenImport', `findTokenFile: ${e.message}`);
+    return null;
+  }
+}
+
+/**
  * Scan, import, obfuscate, delete.
  * @returns {Promise<{ok: boolean, message: string}>} user-facing outcome
  */
