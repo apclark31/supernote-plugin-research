@@ -26,11 +26,13 @@ SuperTask is a community plugin that turns handwriting into Todoist tasks withou
 
 **Built for the new firmware.** This build is against sn-plugin-lib 0.1.65 for **Chauvet 3.29.44** (Manta/Nomad) and **2.26.41** (A5X/A6X). If you're still on .43 / .40, update — Ratta pulled those for a sticker-data bug.
 
-**Permission model, in practice.** The host shows one dialog per permission and the SDK has no batch call, so four cold prompts at launch was the default experience. SuperTask instead shows one explainer screen of its own (three plain-language rows, each with a "Why?" expander), then asks just-in-time:
+**Permission model, in practice.** Two things the changelog doesn't say: every permission must be declared in a root-level `uses-permissions` array in PluginConfig.json or `requestPermission` rejects with error 1500 and shows nothing (docs.supernote.com/en/plugin-base/permission), and the host shows one dialog per permission with no batch call. So four cold prompts at first launch is the default experience. SuperTask instead shows one explainer screen of its own first (three plain-language rows, each with a "Why?" expander, and a note recommending "Always allow"), then walks the prompts in order:
 
-- **Remember your settings and captured tasks** (FILE:READ + FILE:WRITE) — at Continue on the explainer. Its own folder only, `MyStyle/SuperTask`, plus an `exists()` check on a note path before jumping to it. Note content goes through the SDK note APIs, never file access.
-- **Sync with Todoist** (INTERNET) — the first time tasks load. `api.todoist.com`, plus an optional LAN log server you run yourself.
-- **Clean up after itself** (FILE:DELETE) — only when you import a token file; that is the plugin's single delete. Config, registry, and cache use rename-over-existing; the log rotates by copy-and-truncate.
+- **Remember your settings and captured tasks** (FILE:READ + FILE:WRITE) — its own folder only, `MyStyle/SuperTask`, plus an `exists()` check on a note path before jumping to it. Note content goes through the SDK note APIs, never file access.
+- **Sync with Todoist** (INTERNET) — `api.todoist.com`, plus an optional LAN log server you run yourself.
+- **Clean up after itself** (FILE:DELETE) — only the token file after import; that is the plugin's single delete. Config, registry, and cache use rename-over-existing; the log rotates by copy-and-truncate.
+
+Grants survive a device restart but not an uninstall/reinstall, so upgrades ask again. "Allow this time only" expires when the plugin closes.
 
 Settings > Setup > Permissions shows the state of each and re-prompts for anything denied. Two things other devs may find useful, both in the repo:
 
