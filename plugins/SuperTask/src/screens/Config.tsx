@@ -37,6 +37,7 @@ import {
   CheckItem,
   InfoButton,
   InfoSheet,
+  InputSheet,
   SavedTick,
 } from '../components/settings';
 
@@ -147,6 +148,10 @@ export default function Config({onNavigate, nav}: Props) {
   const [permStates, setPermStates] = useState<Record<string, string> | null>(null);
   const [permBusy, setPermBusy] = useState(false);
   const [pingStatus, setPingStatus] = useState('');
+  // Debug server URL is edited in a centered InputSheet: the row sits at the
+  // bottom of the Setup page, exactly where the keyboard / handwriting pane
+  // lands, so in-place editing was unusable (device 2026-09-06).
+  const [editingServerUrl, setEditingServerUrl] = useState(false);
 
   useEffect(() => {
     log('Config', 'MOUNT -- loading saved config');
@@ -317,10 +322,6 @@ export default function Config({onNavigate, nav}: Props) {
   };
 
   // ── Debug server handlers ────────────────────────────────
-
-  const commitServerUrl = () => {
-    applyChange('server', {debugServerUrl: debugServerUrl.trim()});
-  };
 
   // Ping the dev server. Tests the FIELD value (pre-save) so a typo is
   // caught before committing. Tries /ping; falls back to GET / for older
@@ -739,15 +740,11 @@ export default function Config({onNavigate, nav}: Props) {
             onInfo={() => setInfoSheet('server')}
             saved={savedRow === 'server'}>
             <View style={s.inputRow}>
-              <TextInput
-                style={[s.input, {flex: 1}]}
-                value={debugServerUrl}
-                onChangeText={setDebugServerUrlField}
-                onEndEditing={commitServerUrl}
-                placeholder="http://192.168.x.x:3000/log"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
+              <Pressable style={[s.input, {flex: 1}]} onPress={() => setEditingServerUrl(true)}>
+                <Text style={debugServerUrl ? s.inputValueText : s.inputPlaceholderText} numberOfLines={1}>
+                  {debugServerUrl || 'Tap to enter, e.g. http://192.168.x.x:3000/log'}
+                </Text>
+              </Pressable>
               <Pressable style={s.btnSmall} onPress={handleTestServer}>
                 <Text style={s.btnSmallText}>Test</Text>
               </Pressable>
@@ -808,6 +805,20 @@ export default function Config({onNavigate, nav}: Props) {
           {label: 'Go back', body: 'Skips the prompt. About half a second after the task is created you are returned to wherever you came from -- the note or the previous screen.\n\nBest when you usually capture one task at a time and want the fewest taps.'},
         ]}
         onClose={() => setInfoSheet(null)}
+      />
+
+      <InputSheet
+        visible={editingServerUrl}
+        title="Debug log server"
+        hint="Your computer's LAN address and port, as printed by dev-server.js. Tap ? on the row for setup steps."
+        value={debugServerUrl}
+        placeholder="http://192.168.x.x:3000/log"
+        onSave={next => {
+          setDebugServerUrlField(next);
+          setEditingServerUrl(false);
+          applyChange('server', {debugServerUrl: next});
+        }}
+        onCancel={() => setEditingServerUrl(false)}
       />
 
       <InfoSheet
@@ -985,6 +996,14 @@ const s = StyleSheet.create({
     fontSize: 15,
     color: '#000000',
     minHeight: 44,
+  },
+  inputValueText: {
+    fontSize: 15,
+    color: '#000000',
+  },
+  inputPlaceholderText: {
+    fontSize: 15,
+    color: '#888888',
   },
   btnSmall: {
     borderWidth: 2,

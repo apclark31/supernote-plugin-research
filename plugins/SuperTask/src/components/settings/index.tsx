@@ -14,7 +14,7 @@
  */
 
 import React from 'react';
-import {View, Text, Pressable, StyleSheet} from 'react-native';
+import {View, Text, Pressable, StyleSheet, TextInput} from 'react-native';
 import {useFontScale} from '../../utils/useFontScale';
 
 // Accessibility text scale (F-031): StyleSheets are static, so scaled sizes
@@ -235,6 +235,61 @@ export function InfoSheet({
   );
 }
 
+// ── InputSheet (text entry that the keyboard cannot cover) ──
+// Fields near the bottom of a settings page sit under the on-screen
+// keyboard / handwriting pane the moment they get focus (device 2026-09-06,
+// debug server URL). This dialog puts the field in the upper third of the
+// panel, above that pane, with explicit Save / Cancel.
+
+export function InputSheet({
+  visible,
+  title,
+  hint,
+  value,
+  placeholder,
+  onSave,
+  onCancel,
+}: {
+  visible: boolean;
+  title: string;
+  hint?: string;
+  value: string;
+  placeholder?: string;
+  onSave: (next: string) => void;
+  onCancel: () => void;
+}) {
+  const fs = useFs();
+  const [draft, setDraft] = React.useState(value);
+  React.useEffect(() => { if (visible) setDraft(value); }, [visible, value]);
+  if (!visible) return null;
+  return (
+    <Pressable style={st.overlayTop} onPress={onCancel}>
+      <Pressable style={st.sheet} onPress={() => {}}>
+        <Text style={[st.sheetTitle, {fontSize: fs(20)}]}>{title}</Text>
+        {hint ? <Text style={[st.sheetIntro, {fontSize: fs(14)}]}>{hint}</Text> : null}
+        <TextInput
+          style={[st.inputField, {fontSize: fs(16)}]}
+          value={draft}
+          onChangeText={setDraft}
+          placeholder={placeholder}
+          autoFocus
+          autoCapitalize="none"
+          autoCorrect={false}
+          onSubmitEditing={() => onSave(draft.trim())}
+        />
+        <View style={st.inputActions}>
+          <Pressable style={st.inputBtn} onPress={onCancel}>
+            <Text style={[st.inputBtnText, {fontSize: fs(15)}]}>Cancel</Text>
+          </Pressable>
+          <Pressable style={[st.inputBtn, st.inputBtnPrimary]} onPress={() => onSave(draft.trim())}>
+            <Text style={[st.inputBtnText, st.inputBtnTextPrimary, {fontSize: fs(15)}]}>Save</Text>
+          </Pressable>
+        </View>
+      </Pressable>
+    </Pressable>
+  );
+}
+
 // ── Styles ─────────────────────────────────────────────────
 
 const st = StyleSheet.create({
@@ -380,6 +435,53 @@ const st = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+  },
+  // Same overlay, but the box sits in the upper third so the keyboard /
+  // handwriting pane rising from the bottom never covers the field.
+  overlayTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: '8%',
+    padding: 24,
+  },
+  inputField: {
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#000000',
+    marginTop: 8,
+  },
+  inputActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 16,
+  },
+  inputBtn: {
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    backgroundColor: '#ffffff',
+  },
+  inputBtnPrimary: {
+    backgroundColor: '#000000',
+  },
+  inputBtnText: {
+    fontWeight: '700',
+    color: '#000000',
+  },
+  inputBtnTextPrimary: {
+    color: '#ffffff',
   },
   sheet: {
     width: '92%',
