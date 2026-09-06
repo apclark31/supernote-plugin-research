@@ -77,12 +77,16 @@ export default function PermissionsIntro({onDone}: Props) {
           );
         })}
 
+        <View style={s.callout}>
+          <Text style={[s.calloutTitle, {fontSize: fs(16)}]}>Choose "Always allow" on each prompt</Text>
+          <Text style={[s.calloutBody, {fontSize: fs(14), lineHeight: fs(20)}]}>
+            "Allow this time only" lasts until you close the plugin, so it will ask again
+            next time. "Don't allow" switches that part of SuperTask off.
+          </Text>
+        </View>
         <Text style={[s.footnote, {fontSize: fs(13), lineHeight: fs(19)}]}>
-          Choose "Always allow" on each prompt. "Allow this time only" lasts only until
-          you close the plugin, and "Don't allow" turns that part of SuperTask off, so
-          either one means it will keep asking or stop working. You can review or change
-          any of this later under Settings {'>'} Setup {'>'} Permissions, or in
-          Supernote's own plugin settings.
+          You can review or change any of this later under Settings {'>'} Setup {'>'}
+          Permissions, or in Supernote's own plugin settings.
         </Text>
 
         <Pressable style={[s.primary, busy && s.primaryBusy]} onPress={handleContinue} disabled={busy}>
@@ -140,7 +144,18 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#000000',
   },
-  footnote: {fontSize: 13, color: '#333333', marginTop: 8, marginBottom: 20},
+  callout: {
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderLeftWidth: 8,
+    borderRadius: 4,
+    padding: 12,
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  calloutTitle: {fontSize: 16, fontWeight: '700', color: '#000000', marginBottom: 4},
+  calloutBody: {fontSize: 14, color: '#222222'},
+  footnote: {fontSize: 13, color: '#333333', marginTop: 4, marginBottom: 20},
   primary: {
     paddingVertical: 16,
     borderWidth: 2,

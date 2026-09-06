@@ -299,7 +299,7 @@ export default function TaskHome({nav, focusTab}: Props) {
         await reconcileRegistry(data.tasks);
         log('TaskHome', `Loaded ${data.tasks.length} tasks, ${data.projects.length} projects${silent ? ' (silent)' : ''}`);
       } else {
-        setError('No API token. Use the config button to set it up.');
+        setError('No Todoist token yet. Tap Settings (top right), then the Setup tab, to add one.');
       }
     } catch (err: any) {
       logError('TaskHome', err);
@@ -350,7 +350,7 @@ export default function TaskHome({nav, focusTab}: Props) {
             reconcileRegistry(data.tasks);
             log('TaskHome', `Fresh data: ${data.tasks.length} tasks, ${data.projects.length} projects`);
           } else if (!cached) {
-            setError('No API token. Use the config button to set it up.');
+            setError('No Todoist token yet. Tap Settings (top right), then the Setup tab, to add one.');
           }
           setLoading(false);
         })

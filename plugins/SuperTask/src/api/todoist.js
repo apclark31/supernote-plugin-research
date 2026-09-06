@@ -49,7 +49,7 @@ async function todoistFetch(path, options = {}) {
   log('API', `Loading config...`);
   const config = await _configLoader();
   if (!config.apiToken) {
-    throw new Error('No API token configured');
+    throw new Error('No Todoist token yet. Tap Settings, then the Setup tab, to add one.');
   }
 
   // Chauvet 3.29.44: INTERNET is asked for here, in context, the first time
