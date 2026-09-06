@@ -7,11 +7,32 @@ Supernote feel unreliable — this release was built to fix exactly that.
 ## Easier setup — no cable required
 
 - **Import your Todoist token from a synced file.** Save your API token as
-  `supertask-token.txt`, sync it to the top level of any Supernote folder with
-  the Supernote Partner app or Supernote Cloud, and tap **Import** in
-  Settings > Setup. SuperTask stores it securely and deletes the file.
-  (USB, Bluetooth keyboard, and on-screen entry still work — tap ? in
-  Settings for all options.)
+  `supertask-token.txt`, put it in the `MyStyle/SuperTask` folder on your
+  Supernote (the folder SuperTask creates on first run) with the Supernote
+  Partner app, Supernote Cloud, or USB, and tap **Import** in
+  Settings > Setup. SuperTask stores it securely and deletes the file. Only
+  that one folder is checked. (USB config editing, Bluetooth keyboard, and
+  on-screen entry still work — tap ? in Settings for all options.)
+
+## Permissions — what SuperTask asks for, and why
+
+Supernote firmware **Chauvet 3.29.44** (Manta/Nomad) and **2.26.41**
+(A5X/A6X) let you decide, per plugin, what it may touch. The first time
+SuperTask starts on that firmware it asks for four permissions, one at a
+time. You can decline any of them; the matching feature simply stops
+working, and Settings > Setup > Permissions shows what is allowed with an
+**Allow missing** button if you change your mind.
+
+| Permission | What SuperTask uses it for |
+|---|---|
+| Read its own files | Its own folder, `MyStyle/SuperTask`: your settings, the list of tasks captured from notes, a cached task list, and the token file you sync there. Also checks a note still exists before jumping to it. Your notes and handwriting are never read through this permission. |
+| Save its own files | Settings, captured-task list, task cache, and a troubleshooting log — all inside `MyStyle/SuperTask`. Nothing is written anywhere else. |
+| Tidy up its own files | Deletes only its own files: the token file right after import (so it never sits in plain text), the previous log when the log rotates, its cache. Never notes or documents. |
+| Sync with Todoist | Talks to `api.todoist.com` to create, list, edit, and complete your tasks. Optionally streams the troubleshooting log to a computer on your own wifi if you set that up. Nothing is sent to the plugin author. |
+
+Every file SuperTask reads, saves, or deletes lives in one folder. Note
+content is read only through Supernote's own plugin API when you lasso it,
+and only ever goes to your own Todoist account.
 
 ## Redesigned task list
 
@@ -69,6 +90,14 @@ Supernote feel unreliable — this release was built to fix exactly that.
 - The optional live log server (`dev-server.js`, included next to the plugin
   download) can be pointed at from Settings > Setup, with a **Test** button
   and step-by-step Mac/Windows instructions.
+
+## Firmware
+
+This build is compiled against sn-plugin-lib 0.1.65 for the current plugin
+Beta firmware: **Chauvet 3.29.44** (Manta/Nomad) and **Chauvet 2.26.41**
+(A5X/A6X). Ratta pulled the previous 3.29.43 / 2.26.40 builds for a
+sticker-data bug — update straight to .44 / .41. Older plugin-preview
+firmware needs the previous SuperTask build (0.1.43 library).
 
 ## Install / upgrade
 

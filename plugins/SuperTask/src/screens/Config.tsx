@@ -26,7 +26,8 @@ import {loadConfig, saveConfig, getCachedConfig, getConfigSource, wasTemplateGen
 import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
 import {reloadGestureConfig} from '../utils/gestureDetector';
-import {importTokenFromFile} from '../utils/tokenImport';
+import {importTokenFromFile, TOKEN_DIR_LABEL} from '../utils/tokenImport';
+import {PERMISSIONS, getPermissionStates, ensureCorePermissions} from '../utils/permissions';
 import {FONT_SCALE_STEPS} from '../utils/fontScale';
 import {
   Section,
@@ -129,7 +130,11 @@ export default function Config({onNavigate, nav}: Props) {
   const savedTimer = useRef<any>(null);
 
   // Info sheets + transient statuses
-  const [infoSheet, setInfoSheet] = useState<'token' | 'gesture' | 'server' | 'postCreate' | null>(null);
+  const [infoSheet, setInfoSheet] = useState<'token' | 'gesture' | 'server' | 'postCreate' | 'permissions' | null>(null);
+  // Chauvet 3.29.44 per-plugin permissions: null = firmware has no permission
+  // model (pre-0.1.65); otherwise short-name -> 1 granted / 0 not / null error
+  const [permStates, setPermStates] = useState<Record<string, number | null> | null>(null);
+  const [permBusy, setPermBusy] = useState(false);
   const [pingStatus, setPingStatus] = useState('');
 
   useEffect(() => {
@@ -160,6 +165,7 @@ export default function Config({onNavigate, nav}: Props) {
       if (config.fontScale) setFontScaleField(config.fontScale);
 
       setConfigSource(getConfigSource());
+      refreshPermissions();
 
       if (config.apiToken) {
         try {
@@ -229,6 +235,23 @@ export default function Config({onNavigate, nav}: Props) {
       const config = await loadConfig();
       if (config.apiToken) setToken(config.apiToken);
       setConfigSource(getConfigSource());
+    }
+  };
+
+  // ── Permissions (Chauvet 3.29.44) ───────────────────────
+
+  const refreshPermissions = async () => {
+    const res = await getPermissionStates();
+    setPermStates(res.supported ? res.states : null);
+  };
+
+  const handleRequestPermissions = async () => {
+    setPermBusy(true);
+    try {
+      const res = await ensureCorePermissions();
+      setPermStates(res.supported ? res.states : null);
+    } finally {
+      setPermBusy(false);
     }
   };
 
@@ -390,7 +413,7 @@ export default function Config({onNavigate, nav}: Props) {
 
           <SettingRow
             label="Import token from file"
-            hint="Save your token as supertask-token.txt, sync it to the top level of any Supernote folder (Document, INBOX, Note...), then tap Import. The file is deleted after import. Tap ? for step-by-step instructions."
+            hint={`Save your token as supertask-token.txt, put it in ${TOKEN_DIR_LABEL} (the folder SuperTask created on first run), then tap Import. The file is deleted after import. Tap ? for step-by-step instructions.`}
             onInfo={() => setInfoSheet('token')}
             saved={savedRow === 'token'}>
             <View style={s.inputRow}>
@@ -404,9 +427,10 @@ export default function Config({onNavigate, nav}: Props) {
           {!token && wasTemplateGenerated() && (
             <View style={s.notice}>
               <Text style={s.noticeText}>
-                No token yet. Easiest: sync a supertask-token.txt file from your
-                phone and tap Import above. Tap ? for all options (USB config
-                file, Bluetooth keyboard, on-screen keyboard).
+                No token yet. Easiest: sync a supertask-token.txt file into
+                MyStyle/SuperTask from your phone and tap Import above. Tap ?
+                for all options (USB config file, Bluetooth keyboard,
+                on-screen keyboard).
               </Text>
             </View>
           )}
@@ -432,6 +456,41 @@ export default function Config({onNavigate, nav}: Props) {
             <View style={s.sourceChip}>
               <Text style={s.sourceChipText}>{sourceLabel(configSource)}</Text>
             </View>
+          </SettingRow>
+
+          <SettingRow
+            label="Permissions"
+            hint={
+              permStates === null
+                ? 'This firmware does not manage plugin permissions. Tap ? to see what SuperTask does with your files and network.'
+                : 'Supernote asks once, on first launch. Everything SuperTask touches stays inside MyStyle/SuperTask; the network is used only for Todoist. Tap ? for the full list.'
+            }
+            onInfo={() => setInfoSheet('permissions')}>
+            {permStates !== null && (
+              <>
+                <View style={s.permGrid}>
+                  {PERMISSIONS.map(p => {
+                    const st = permStates[p.short];
+                    const granted = st === 1;
+                    return (
+                      <View key={p.short} style={[s.permChip, granted && s.permChipOn]}>
+                        <Text style={[s.permChipText, granted && s.permChipTextOn]} numberOfLines={1}>
+                          {p.label}: {granted ? 'Allowed' : st === 0 ? 'Not allowed' : 'Unknown'}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+                {PERMISSIONS.some(p => permStates[p.short] !== 1) && (
+                  <View style={s.inputRow}>
+                    <Pressable style={s.btnAction} onPress={handleRequestPermissions} disabled={permBusy}>
+                      <Text style={s.btnActionText}>{permBusy ? 'Asking...' : 'Allow missing'}</Text>
+                    </Pressable>
+                    <Text style={s.statusInline}>Features that need a missing permission will not work.</Text>
+                  </View>
+                )}
+              </>
+            )}
           </SettingRow>
         </Section>
         )}
@@ -636,7 +695,7 @@ export default function Config({onNavigate, nav}: Props) {
         title="How to enter your API token"
         intro={'Go to todoist.com/prefs/integrations and scroll to "API token" to find yours. You only need to do this once -- your token is saved to the device and persists across reinstalls.'}
         sections={[
-          {label: '1. Sync a token file (easiest -- no cable)', body: 'On your phone: open todoist.com/prefs/integrations, copy the API token. Create a plain text file named supertask-token.txt containing ONLY the token (Notes app > share as file, or any text editor). Sync it to the TOP LEVEL of a Supernote folder -- Document, INBOX, Note, EXPORT, MyStyle, or SCREENSHOT -- using the Supernote Partner app or Supernote Cloud (USB works too). Then tap Import. The plugin saves the token securely and deletes the file. Subfolders are not scanned -- keep the file at the top level.'},
+          {label: '1. Sync a token file (easiest -- no cable)', body: 'On your phone: open todoist.com/prefs/integrations, copy the API token. Create a plain text file named supertask-token.txt containing ONLY the token (Notes app > share as file, or any text editor). Put it in the MyStyle/SuperTask folder on your Supernote -- the folder SuperTask created on first run, next to supertask-config.json -- using the Supernote Partner app, Supernote Cloud, or USB. Then tap Import. The plugin saves the token securely and deletes the file. Only that one folder is checked, never your other folders or notes.'},
           {label: '2. Edit config via USB', body: 'A config file was created on your device at:\nMyStyle/SuperTask/supertask-config.json\n\nConnect your Supernote to a computer via USB, open the file in a text editor, and replace YOUR_TOKEN_HERE with your actual token. Save the file and reopen the plugin.\n\nYour plain text token will be automatically obfuscated the next time the plugin loads.'},
           {label: '3. Bluetooth keyboard', body: 'Pair a Bluetooth keyboard (Supernote Settings > Bluetooth), then tap the token field, paste with Ctrl+V, and tap Save.'},
           {label: '4. On-screen keyboard', body: 'Tap the token field and type the 40-character token using the on-screen keyboard. Slow, but you only need to do it once. Tap Save when done.'},
@@ -675,6 +734,17 @@ export default function Config({onNavigate, nav}: Props) {
           {label: 'Mac', body: '1. Install Node.js from nodejs.org (or: brew install node)\n2. Open Terminal\n3. cd into the folder where you saved dev-server.js\n4. Run: node dev-server.js\n\nThe server prints its address, e.g. http://192.168.1.20:3000/log -- enter that in the field, then tap Test.'},
           {label: 'Windows', body: '1. Install Node.js from nodejs.org\n2. Open PowerShell (or Command Prompt)\n3. cd into the folder where you saved dev-server.js\n4. Run: node dev-server.js\n5. If Windows Firewall asks, click Allow (private networks)\n\nEnter the printed address in the field, then tap Test.'},
           {label: 'If Test fails', body: "Supernote and computer must be on the SAME wifi network. Use the computer's LAN IP address (192.168.x.x) -- Android cannot resolve .local names. If your computer's IP changed, the server prints the new one on startup; update the field here (no reinstall needed)."},
+        ]}
+        onClose={() => setInfoSheet(null)}
+      />
+
+      <InfoSheet
+        visible={infoSheet === 'permissions'}
+        title="What SuperTask is allowed to do"
+        intro="Supernote firmware 3.29.44 (2.26.41 on A5X/A6X) lets you decide, per plugin, what it may touch. SuperTask asks for four things, once, when it first starts. You can say no to any of them; the matching feature simply stops working. Here is exactly what each one is used for -- and nothing else."
+        sections={[
+          ...PERMISSIONS.map(p => ({label: p.label, body: p.why})),
+          {label: 'In short', body: 'Every file SuperTask reads, saves, or deletes lives in one folder, MyStyle/SuperTask. Your notes and documents are never modified, uploaded, or deleted by it. The only place data goes is your own Todoist account. If you decline a permission and change your mind, use Allow missing on this screen.'},
         ]}
         onClose={() => setInfoSheet(null)}
       />
@@ -808,6 +878,31 @@ const s = StyleSheet.create({
     color: '#000000',
     flexShrink: 1,
     marginTop: 6,
+  },
+  permGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  permChip: {
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#ffffff',
+  },
+  permChipOn: {
+    backgroundColor: '#000000',
+  },
+  permChipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000000',
+  },
+  permChipTextOn: {
+    color: '#ffffff',
   },
   notice: {
     borderWidth: 1,

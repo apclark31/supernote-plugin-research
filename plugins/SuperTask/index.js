@@ -23,18 +23,26 @@ AppRegistry.registerComponent(appName, () => App);
 
 PluginManager.init();
 
+// Config button first: it is registered during JS module evaluation, and
+// the host's plugin menu can render before the runtime is up (B-032 /
+// SNDEV-61). Nothing else in this file should run ahead of it.
+PluginManager.registerConfigButton();
+
 // SDK 0.1.65 (SNDEV-70 build 1): lifecycle events in log-only mode
-// (cross-checked against manual view marks), and the INTERNET permission
-// check -- if firmware enforces the new permission model, sync must fail
-// loudly in the log, not masquerade as network trouble. Both no-op cleanly
-// on pre-0.1.65 firmware.
+// (cross-checked against manual view marks), and the permission guard --
+// Chauvet 3.29.44 grants FILE:READ/WRITE/DELETE and INTERNET per plugin, so
+// a missing one must fail loudly in the log, not masquerade as a write or
+// network failure. Both no-op cleanly on pre-0.1.65 firmware.
 registerLifecycleDiagnostics();
-ensureCorePermissions();
+const permissionsReady = ensureCorePermissions();
 
 // Hydrate the last session's task snapshot from disk so a cold open paints
 // the list instantly (stale-while-revalidate across process restarts).
-// Fire-and-forget: TaskHome awaits the same promise if it mounts first.
-initTaskCache();
+// Sequenced behind the permission guard so a first launch's FILE:READ
+// dialog resolves before the first disk read; on later launches the guard
+// is one quick native round-trip. TaskHome awaits the same hydration
+// promise if it mounts first (initTaskCache dedups).
+permissionsReady.then(initTaskCache, initTaskCache);
 
 // Register motion listener at init so long-press gestures work
 // even before the plugin UI has ever been opened. The onMsg callback is
@@ -70,9 +78,6 @@ PluginManager.registerButton(1, ['DOC'], {
   icon,
   showType: 1,
 });
-
-// Config button - settings/API token
-PluginManager.registerConfigButton();
 
 // Set initial button ID BEFORE React mounts.
 // The config event fires before App.tsx useEffect, so we need

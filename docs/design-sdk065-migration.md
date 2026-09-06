@@ -116,6 +116,27 @@ upload breaks silently until we request it.** Migration build must:
 3. surface denied-state in Settings > Account & Sync (not a silent dead sync —
    the visibility principle).
 
+**Update 2026-09-06 (Chauvet 3.29.44 / 2.26.41 — "plugin permission
+management"; 3.29.43 / 2.26.40 were pulled for sticker loss).** Ratta's
+review guidelines name four permissions — `FILE:READ` ("not granted by
+default"), `FILE:WRITE`, `FILE:DELETE`, `INTERNET` — and there is no
+build-time declaration (PluginConfig.json has no permission field): grants
+happen through the host dialog at first use. `permissions.js` now checks and
+requests all four sequentially with plain-language `desc` strings, exports
+the same explanations for a Settings > Setup > Permissions row (status chips
++ Allow missing) and info sheet, and `initTaskCache` is sequenced behind the
+guard so first-launch's FILE:READ dialog resolves before the first disk read.
+Note the SDK JSDoc lists only WRITE/DELETE/INTERNET — FILE:READ is passed
+through as a string and its outcome logged; an unknown name is non-fatal.
+
+**Scope discipline (Alex):** the token import used to sweep the top level of
+all six sync roots — FILE:READ far beyond the feature's need. It now looks
+only in `MyStyle/SuperTask` (the folder the plugin already creates for
+`supertask-config.json`), top level, one filename. Every file the plugin
+reads/writes/deletes lives in that folder, except two read-only `exists()`
+pre-flights on note paths before a jump. That is the story told to users and
+to the InkHub review process.
+
 ## 5. canHandwrite
 
 Verified JSDoc: "Checks whether the current view supports **EMR** handwriting."
