@@ -170,6 +170,23 @@ function requestOnce(key, desc, id) {
 }
 
 /**
+ * Ask for every group in order, one dialog at a time -- the explainer's
+ * Continue (Alex, 2026-09-06 device pass: since the user has just read what
+ * all three are for, walking through them there beats a surprise prompt
+ * mid-task-list; the just-in-time asks stay as the safety net for "this
+ * time only" expiry and changed minds). Returns per-group results.
+ * @returns {Promise<Record<string, boolean>>}
+ */
+export async function ensureAllPermissionGroups() {
+  const results = {};
+  for (const g of PERMISSION_GROUPS) {
+    results[g.id] = await ensurePermissionGroup(g.id, {force: true});
+  }
+  log('Perms', `explainer pass: ${Object.entries(results).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+  return results;
+}
+
+/**
  * Make sure a group is granted, asking the host for each missing
  * permission in order (one dialog at a time). Never throws.
  * @param {'folder'|'sync'|'cleanup'} id

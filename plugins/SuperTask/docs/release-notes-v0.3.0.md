@@ -23,12 +23,13 @@ things to keep that painless:
 
 1. **One explainer screen** the first time you open it: three plain-language
    rows, each with a **Why?** you can expand, and a **Continue** button.
-2. **Asks only when needed.** Continue triggers the folder prompts; Todoist
-   access is asked for the first time your tasks load; deleting only when
-   you import a token file. Choose **Always allow** and each is asked once;
-   **Allow this time only** lasts until you close the plugin, so it will ask
-   again next time. If you ever chose **Don't allow**, Supernote sends you to
-   its own plugin settings page to change it.
+2. **Continue walks through them in order**, one Supernote prompt at a time,
+   right after you have read what each is for. Choose **Always allow** on
+   each: **Allow this time only** lasts until you close the plugin, so it
+   will ask again next time, and **Don't allow** switches that part off. If
+   you skip the screen, each part asks the first time you use it. If you
+   ever chose Don't allow, Supernote sends you to its own plugin settings
+   page to change it.
 
 | What SuperTask asks for | What it means |
 |---|---|

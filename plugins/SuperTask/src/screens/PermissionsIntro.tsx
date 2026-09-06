@@ -5,9 +5,9 @@
  * Why it exists: the firmware asks for each permission with its own dialog
  * and the SDK cannot batch them. Four unexplained prompts in a row is a bad
  * first impression, so this screen says everything once, in plain words,
- * with a "Why?" expander per row; Continue then triggers only the folder
- * pair (read + write). Sync and cleanup are requested later, in context
- * (see permissions.js).
+ * with a "Why?" expander per row; Continue then walks through all three
+ * groups in order (four host prompts, each one the user was just told
+ * about). The just-in-time asks in permissions.js remain as the safety net.
  *
  * Built on the settings primitives' visual rules: black on white, 2px
  * borders, drawn views, no animation.
@@ -15,7 +15,7 @@
 
 import React, {useState} from 'react';
 import {View, Text, Pressable, StyleSheet, ScrollView} from 'react-native';
-import {PERMISSION_GROUPS, ensurePermissionGroup} from '../utils/permissions';
+import {PERMISSION_GROUPS, ensureAllPermissionGroups} from '../utils/permissions';
 import {useFontScale} from '../utils/useFontScale';
 import {log} from '../utils/debug';
 
@@ -31,10 +31,9 @@ export default function PermissionsIntro({onDone}: Props) {
 
   const handleContinue = async () => {
     setBusy(true);
-    log('PermissionsIntro', 'Continue -> requesting folder group');
+    log('PermissionsIntro', 'Continue -> requesting all groups');
     try {
-      const ok = await ensurePermissionGroup('folder', {force: true});
-      log('PermissionsIntro', `folder group granted=${ok}`);
+      await ensureAllPermissionGroups();
     } finally {
       setBusy(false);
       onDone();
@@ -47,8 +46,8 @@ export default function PermissionsIntro({onDone}: Props) {
         <Text style={[s.title, {fontSize: fs(24)}]}>Before you start</Text>
         <Text style={[s.intro, {fontSize: fs(15), lineHeight: fs(22)}]}>
           SuperTask keeps everything in one folder of its own on this device and only
-          ever talks to your Todoist account. Supernote will ask you to confirm each of
-          the three things below the first time it is needed.
+          ever talks to your Todoist account. When you tap Continue, Supernote will ask
+          you to confirm the three things below, one at a time.
         </Text>
 
         <Text style={[s.heading, {fontSize: fs(13)}]}>WHAT SUPERTASK NEEDS</Text>
@@ -79,12 +78,11 @@ export default function PermissionsIntro({onDone}: Props) {
         })}
 
         <Text style={[s.footnote, {fontSize: fs(13), lineHeight: fs(19)}]}>
-          Tap Continue and Supernote will ask about the folder now (two prompts). Choose
-          "Always allow" and it will not ask again; "Allow this time only" lasts until you
-          close the plugin. Todoist access is requested the first time your tasks load;
-          deleting the token file only when you import one. You can review or change any
-          of this later under Settings {'>'} Setup {'>'} Permissions, or in Supernote's own
-          plugin settings.
+          Choose "Always allow" on each prompt. "Allow this time only" lasts only until
+          you close the plugin, and "Don't allow" turns that part of SuperTask off, so
+          either one means it will keep asking or stop working. You can review or change
+          any of this later under Settings {'>'} Setup {'>'} Permissions, or in
+          Supernote's own plugin settings.
         </Text>
 
         <Pressable style={[s.primary, busy && s.primaryBusy]} onPress={handleContinue} disabled={busy}>
@@ -94,8 +92,8 @@ export default function PermissionsIntro({onDone}: Props) {
           <Text style={[s.secondaryText, {fontSize: fs(15)}]}>Not now</Text>
         </Pressable>
         <Text style={[s.footnoteSmall, {fontSize: fs(12), lineHeight: fs(17)}]}>
-          If you choose Not now, SuperTask still opens, but it cannot remember settings or
-          captured tasks until you allow the folder.
+          If you choose Not now, SuperTask still opens, but each part will ask for its
+          permission the first time you use it.
         </Text>
       </ScrollView>
     </View>
