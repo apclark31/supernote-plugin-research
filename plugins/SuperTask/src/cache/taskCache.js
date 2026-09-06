@@ -73,9 +73,7 @@ function persistCache(data) {
       const dirExists = await RNFS.exists(CACHE_DIR);
       if (!dirExists) await RNFS.mkdir(CACHE_DIR);
       await RNFS.writeFile(CACHE_TMP, JSON.stringify(data), 'utf8');
-      try {
-        await RNFS.unlink(CACHE_FILE);
-      } catch {}
+      // rename replaces atomically on Android -- no unlink (FILE:WRITE only)
       await RNFS.moveFile(CACHE_TMP, CACHE_FILE);
     })
     .catch(e => log('Cache', `Disk persist failed (non-fatal): ${e.message}`));
@@ -170,8 +168,11 @@ export function invalidateCache() {
   // Drop the disk snapshot too: after a mutation it holds pre-mutation
   // state, and resurrecting a completed task on the next cold start reads
   // as data loss. The next successful fetch rewrites it.
+  // Overwrite rather than delete: hydration rejects a snapshot without a
+  // tasks array, so an empty object is as good as no file -- and it keeps
+  // the cache on FILE:WRITE alone (Chauvet 3.29.44).
   _persistChain = _persistChain
-    .then(() => RNFS.unlink(CACHE_FILE))
+    .then(() => RNFS.writeFile(CACHE_FILE, '{}', 'utf8'))
     .catch(() => {});
   log('Cache', 'Invalidated');
 }

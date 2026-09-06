@@ -54,6 +54,21 @@ session 40 scoped. No re-pin.
    device pass before posting.
 8. Release notes gained Permissions + Firmware sections. tsc: 75 errors before and
    after (all pre-existing SDK `Object` typings). Build clean.
+9. **Permission flow redesigned (Alex: four cold dialogs is painful).** The host shows
+   one dialog per permission and the SDK cannot batch, so: `PermissionsIntro.tsx` --
+   one explainer screen on first launch (three plain-language rows, "Why?" expanders,
+   Continue / Not now), shown by App.tsx while the folder group is not granted;
+   `permissions.js` now exposes `PERMISSION_GROUPS` (folder = READ+WRITE, sync =
+   INTERNET, cleanup = DELETE) and `ensurePermissionGroup(id, {force})`, asked
+   just-in-time: folder at Continue, sync inside `todoistFetch` / log upload / Test
+   server, cleanup at token import only. Startup only logs states. To make DELETE
+   truly import-only, config/registry/cache atomic writes dropped their pre-unlink
+   (rename replaces on Android), cache invalidation overwrites `{}`, log rotation is
+   copy+truncate. Settings > Setup > Permissions lists the three groups with
+   Allowed / Not yet / Partly chips. Technical names appear only in the expanded why.
+   Diagnostics' test-file delete (dev surface) left as is. Device question added:
+   does the host count rename-over-existing as a delete? (Config saves failing with
+   DELETE denied would be the tell.)
 
 **Not done / decisions pending Alex:** which branch cuts the v0.3.0 GitHub release --
 the user group is on 3.29.44, so `sdk-0.1.65` is the candidate, but only after its

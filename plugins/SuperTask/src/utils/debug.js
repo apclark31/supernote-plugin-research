@@ -68,10 +68,11 @@ export function flushToFile() {
           : 0;
       }
       if (_flushedBytes > ROTATE_BYTES) {
-        try {
-          await RNFS.unlink(SESSION_LOG_PREV);
-        } catch {}
-        await RNFS.moveFile(SESSION_LOG, SESSION_LOG_PREV);
+        // Rotate WITHOUT a delete (Chauvet 3.29.44 keeps FILE:DELETE for the
+        // token import only): copy over the previous file, then truncate the
+        // live one. Both are writes.
+        await RNFS.copyFile(SESSION_LOG, SESSION_LOG_PREV);
+        await RNFS.writeFile(SESSION_LOG, '', 'utf8');
         _flushedBytes = 0;
       }
       await RNFS.appendFile(SESSION_LOG, batch, 'utf8');
@@ -138,8 +139,16 @@ export async function exportLog() {
     await flushToFile();
   } catch {}
 
-  // Method 1: POST to dev server, with timeout
+  // Method 1: POST to dev server, with timeout. Network permission is asked
+  // for here (in context) on Chauvet 3.29.44; lazy require because
+  // permissions.js imports this module's log().
   if (_debugServerUrl) {
+    try {
+      const {ensurePermissionGroup} = require('./permissions');
+      if (!(await ensurePermissionGroup('sync'))) {
+        return 'Upload not allowed: enable "Sync with Todoist" under Settings > Setup > Permissions (it also covers the log server).';
+      }
+    } catch {}
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
     try {

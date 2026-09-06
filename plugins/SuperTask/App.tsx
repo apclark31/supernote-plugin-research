@@ -20,6 +20,8 @@ import Capture from './src/screens/Capture';
 import QuickAdd from './src/screens/QuickAdd';
 import Config from './src/screens/Config';
 import Diagnostics from './src/screens/Diagnostics';
+import PermissionsIntro from './src/screens/PermissionsIntro';
+import {isPermissionApiAvailable, getPermissionStates} from './src/utils/permissions';
 import {log, logError, getEntries, setListener, exportLog, setDebugMode} from './src/utils/debug';
 import {initGestureDetector, clearLinkCache} from './src/utils/gestureDetector';
 import {markViewOpen, markViewClosed, setCurrentScreen} from './src/utils/viewState';
@@ -130,8 +132,32 @@ function DeepLinkLoader({taskId, nav}: {taskId: string; nav: any}) {
 
 let navIdCounter = 0;
 
+// Permission explainer (Chauvet 3.29.44+): shown once per process while the
+// folder group (read + write) is not granted. Stateless on purpose -- the
+// plugin cannot persist a "shown" flag before it has write permission, and
+// once the folder is granted the check itself says "don't show". "Not now"
+// suppresses it for the rest of the process only.
+let _introResolved = false;
+let _introDismissed = false;
+
 function App(): React.JSX.Element {
   const [screenStack, setScreenStack] = useState<ScreenEntry[]>([getInitialScreen()]);
+  const [intro, setIntro] = useState<'checking' | 'show' | 'done'>(() => {
+    if (_introResolved || _introDismissed || !isPermissionApiAvailable()) return 'done';
+    return 'checking';
+  });
+  useEffect(() => {
+    if (intro !== 'checking') return;
+    let cancelled = false;
+    getPermissionStates().then(snap => {
+      if (cancelled) return;
+      const need = snap.supported && snap.groups.folder !== 'granted';
+      log('App', `permission intro: folder=${snap.groups.folder ?? 'n/a'} -> ${need ? 'show' : 'skip'}`);
+      if (!need) _introResolved = true;
+      setIntro(need ? 'show' : 'done');
+    }).catch(() => setIntro('done'));
+    return () => { cancelled = true; };
+  }, [intro]);
   const [error, setError] = useState<string | null>(null);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [exportStatus, setExportStatus] = useState('');
@@ -284,6 +310,20 @@ function App(): React.JSX.Element {
 
   const nav = {push, pop, replace, resetTo, canGoBack};
   const isOverlay = current.name === 'capture-lasso';
+
+  if (intro === 'checking') {
+    return <View style={styles.container} />;
+  }
+  if (intro === 'show') {
+    return (
+      <PermissionsIntro
+        onDone={() => {
+          _introDismissed = true;
+          setIntro('done');
+        }}
+      />
+    );
+  }
 
   return (
     <View style={[styles.container, isOverlay && styles.containerOverlay]}>

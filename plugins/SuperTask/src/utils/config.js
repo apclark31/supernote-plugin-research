@@ -195,9 +195,8 @@ async function writeConfigFile(obj) {
   }
   const json = JSON.stringify(obj, null, 2);
   await RNFS.writeFile(CONFIG_TMP, json, 'utf8');
-  try {
-    await RNFS.unlink(CONFIG_FILE);
-  } catch {}
+  // rename(2) replaces the destination atomically on Android -- no unlink,
+  // so this path needs FILE:WRITE only (Chauvet 3.29.44 permission model).
   await RNFS.moveFile(CONFIG_TMP, CONFIG_FILE);
   return json.length;
 }

@@ -17,7 +17,7 @@ import {PluginManager} from 'sn-plugin-lib';
 import {initGestureDetector} from './src/utils/gestureDetector';
 import {initTaskCache} from './src/cache/taskCache';
 import {markViewOpen, registerLifecycleDiagnostics} from './src/utils/viewState';
-import {ensureCorePermissions} from './src/utils/permissions';
+import {logPermissionStates} from './src/utils/permissions';
 
 AppRegistry.registerComponent(appName, () => App);
 
@@ -28,21 +28,20 @@ PluginManager.init();
 // SNDEV-61). Nothing else in this file should run ahead of it.
 PluginManager.registerConfigButton();
 
-// SDK 0.1.65 (SNDEV-70 build 1): lifecycle events in log-only mode
-// (cross-checked against manual view marks), and the permission guard --
-// Chauvet 3.29.44 grants FILE:READ/WRITE/DELETE and INTERNET per plugin, so
-// a missing one must fail loudly in the log, not masquerade as a write or
-// network failure. Both no-op cleanly on pre-0.1.65 firmware.
+// SDK 0.1.65 (SNDEV-70): lifecycle events in log-only mode (cross-checked
+// against manual view marks), and a permission-state snapshot in the log so
+// a denied permission is visible next to whatever fails because of it. No
+// dialogs here: those belong to the explainer screen (App.tsx) and the
+// just-in-time call sites (permissions.js). Both no-op on old firmware.
 registerLifecycleDiagnostics();
-const permissionsReady = ensureCorePermissions();
+const permissionsLogged = logPermissionStates();
 
 // Hydrate the last session's task snapshot from disk so a cold open paints
 // the list instantly (stale-while-revalidate across process restarts).
-// Sequenced behind the permission guard so a first launch's FILE:READ
-// dialog resolves before the first disk read; on later launches the guard
-// is one quick native round-trip. TaskHome awaits the same hydration
-// promise if it mounts first (initTaskCache dedups).
-permissionsReady.then(initTaskCache, initTaskCache);
+// Sequenced behind the state snapshot (one quick native round-trip) so the
+// "Cache" and "Perms" lines read in order. TaskHome awaits the same
+// hydration promise if it mounts first (initTaskCache dedups).
+permissionsLogged.then(initTaskCache, initTaskCache);
 
 // Register motion listener at init so long-press gestures work
 // even before the plugin UI has ever been opened. The onMsg callback is

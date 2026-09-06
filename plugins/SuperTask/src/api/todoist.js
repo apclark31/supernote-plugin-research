@@ -5,6 +5,7 @@
  * fetch() which works on Supernote without restrictions.
  */
 
+import {ensurePermissionGroup} from '../utils/permissions';
 import {log, logError} from '../utils/debug';
 
 const TODOIST_API = 'https://api.todoist.com/api/v1';
@@ -49,6 +50,12 @@ async function todoistFetch(path, options = {}) {
   const config = await _configLoader();
   if (!config.apiToken) {
     throw new Error('No API token configured');
+  }
+
+  // Chauvet 3.29.44: INTERNET is asked for here, in context, the first time
+  // tasks sync -- not at launch. A denial is reported as what it is.
+  if (!(await ensurePermissionGroup('sync'))) {
+    throw new Error('Todoist access not allowed on this device. Open Settings > Setup > Permissions and allow "Sync with Todoist".');
   }
 
   const url = `${TODOIST_API}${path}`;

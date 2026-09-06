@@ -77,9 +77,7 @@ async function write(registry) {
     // Atomic-ish write: full temp file first, then swap in. A process kill
     // mid-write can no longer truncate the registry (B-025).
     await RNFS.writeFile(REGISTRY_TMP, JSON.stringify(registry, null, 2), 'utf8');
-    try {
-      await RNFS.unlink(REGISTRY_FILE);
-    } catch {}
+    // rename replaces atomically on Android -- no unlink (FILE:WRITE only)
     await RNFS.moveFile(REGISTRY_TMP, REGISTRY_FILE);
   } catch (e) {
     log('Registry', `Write failed: ${e.message}`);

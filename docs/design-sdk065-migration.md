@@ -129,6 +129,19 @@ guard so first-launch's FILE:READ dialog resolves before the first disk read.
 Note the SDK JSDoc lists only WRITE/DELETE/INTERNET — FILE:READ is passed
 through as a string and its outcome logged; an unknown name is non-fatal.
 
+**Flow redesign (Alex, same day):** four host dialogs in a row on first launch
+is a bad experience, and they cannot be merged (one `requestPermission` per
+name, no batch API, no manifest). So: (1) `PermissionsIntro` — one explainer
+screen of ours, three plain-language rows with "Why?" expanders, Continue;
+(2) just-in-time groups in `permissions.js`: `folder` = READ+WRITE at
+Continue, `sync` = INTERNET at the first Todoist / log-server call, `cleanup`
+= DELETE at token import only; (3) technical names only inside the expanded
+why. To make DELETE genuinely import-only, persistence no longer unlinks:
+config/registry/cache atomic writes rely on rename-over-existing (rename(2)
+on Android), cache invalidation overwrites with `{}`, log rotation is
+copy+truncate. Whether the host counts rename-replace as a delete is a device
+question — if config saves fail with FILE:DELETE denied, that is the tell.
+
 **Scope discipline (Alex):** the token import used to sweep the top level of
 all six sync roots — FILE:READ far beyond the feature's need. It now looks
 only in `MyStyle/SuperTask` (the folder the plugin already creates for

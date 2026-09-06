@@ -27,7 +27,7 @@ import {setConfigLoader, testConnection, getProjects} from '../api/todoist';
 import {log} from '../utils/debug';
 import {reloadGestureConfig} from '../utils/gestureDetector';
 import {importTokenFromFile, TOKEN_DIR_LABEL} from '../utils/tokenImport';
-import {PERMISSIONS, getPermissionStates, ensureCorePermissions} from '../utils/permissions';
+import {PERMISSION_GROUPS, getPermissionStates, ensurePermissionGroup} from '../utils/permissions';
 import {FONT_SCALE_STEPS} from '../utils/fontScale';
 import {
   Section,
@@ -133,8 +133,8 @@ export default function Config({onNavigate, nav}: Props) {
   // Info sheets + transient statuses
   const [infoSheet, setInfoSheet] = useState<'token' | 'gesture' | 'server' | 'postCreate' | 'permissions' | 'opening' | 'capturing' | 'projects' | 'debugging' | null>(null);
   // Chauvet 3.29.44 per-plugin permissions: null = firmware has no permission
-  // model (pre-0.1.65); otherwise short-name -> 1 granted / 0 not / null error
-  const [permStates, setPermStates] = useState<Record<string, number | null> | null>(null);
+  // model (pre-0.1.65); otherwise group id -> granted / missing / partial / unknown
+  const [permStates, setPermStates] = useState<Record<string, string> | null>(null);
   const [permBusy, setPermBusy] = useState(false);
   const [pingStatus, setPingStatus] = useState('');
 
@@ -244,14 +244,21 @@ export default function Config({onNavigate, nav}: Props) {
 
   const refreshPermissions = async () => {
     const res = await getPermissionStates();
-    setPermStates(res.supported ? res.states : null);
+    setPermStates(res.supported ? res.groups : null);
   };
 
+  // Re-ask the host for every group that is not fully granted, one group at
+  // a time (the host shows one dialog per permission; force bypasses the
+  // once-per-process guard so a changed mind is honoured immediately).
   const handleRequestPermissions = async () => {
     setPermBusy(true);
     try {
-      const res = await ensureCorePermissions();
-      setPermStates(res.supported ? res.states : null);
+      for (const g of PERMISSION_GROUPS) {
+        if (permStates && permStates[g.id] !== 'granted') {
+          await ensurePermissionGroup(g.id as 'folder' | 'sync' | 'cleanup', {force: true});
+        }
+      }
+      await refreshPermissions();
     } finally {
       setPermBusy(false);
     }
@@ -304,6 +311,10 @@ export default function Config({onNavigate, nav}: Props) {
     const base = url.replace(/\/log\/?$/, '');
     setPingStatus('Testing...');
     log('Config', `Server ping test: ${base}/ping`);
+    if (!(await ensurePermissionGroup('sync'))) {
+      setPingStatus('Network not allowed: enable "Sync with Todoist" under Permissions (it covers the log server too).');
+      return;
+    }
 
     const tryFetch = async (target: string) => {
       const controller = new AbortController();
@@ -475,30 +486,36 @@ export default function Config({onNavigate, nav}: Props) {
             hint={
               permStates === null
                 ? 'This firmware does not manage plugin permissions. Tap ? to see what SuperTask does with your files and network.'
-                : 'Supernote asks once, on first launch. Everything SuperTask touches stays inside MyStyle/SuperTask; the network is used only for Todoist. Tap ? for the full list.'
+                : 'Supernote asks about each of these the first time it is needed. Everything SuperTask touches stays inside MyStyle/SuperTask; the network is used only for Todoist. Tap ? for the full reasons.'
             }
             onInfo={() => setInfoSheet('permissions')}>
             {permStates !== null && (
               <>
-                <View style={s.permGrid}>
-                  {PERMISSIONS.map(p => {
-                    const st = permStates[p.short];
-                    const granted = st === 1;
+                <View style={s.permList}>
+                  {PERMISSION_GROUPS.map(g => {
+                    const st = permStates[g.id];
+                    const granted = st === 'granted';
+                    const label =
+                      granted ? 'Allowed'
+                      : st === 'partial' ? 'Partly'
+                      : st === 'unknown' ? 'Unknown'
+                      : 'Not yet';
                     return (
-                      <View key={p.short} style={[s.permChip, granted && s.permChipOn]}>
-                        <Text style={[s.permChipText, granted && s.permChipTextOn]} numberOfLines={1}>
-                          {p.label}: {granted ? 'Allowed' : st === 0 ? 'Not allowed' : 'Unknown'}
-                        </Text>
+                      <View key={g.id} style={s.permRow}>
+                        <Text style={s.permRowLabel} numberOfLines={2}>{g.label}</Text>
+                        <View style={[s.permChip, granted && s.permChipOn]}>
+                          <Text style={[s.permChipText, granted && s.permChipTextOn]}>{label}</Text>
+                        </View>
                       </View>
                     );
                   })}
                 </View>
-                {PERMISSIONS.some(p => permStates[p.short] !== 1) && (
+                {PERMISSION_GROUPS.some(g => permStates[g.id] !== 'granted') && (
                   <View style={s.inputRow}>
                     <Pressable style={s.btnAction} onPress={handleRequestPermissions} disabled={permBusy}>
                       <Text style={s.btnActionText}>{permBusy ? 'Asking...' : 'Allow missing'}</Text>
                     </Pressable>
-                    <Text style={s.statusInline}>Features that need a missing permission will not work.</Text>
+                    <Text style={s.statusInline}>Supernote will ask about each one that is not yet allowed.</Text>
                   </View>
                 )}
               </>
@@ -841,10 +858,10 @@ export default function Config({onNavigate, nav}: Props) {
       <InfoSheet
         visible={infoSheet === 'permissions'}
         title="What SuperTask is allowed to do"
-        intro="Supernote firmware 3.29.44 (2.26.41 on A5X/A6X) lets you decide, per plugin, what it may touch. SuperTask asks for four things, once, when it first starts. You can say no to any of them; the matching feature simply stops working. Here is exactly what each one is used for -- and nothing else."
+        intro="Supernote firmware 3.29.44 (2.26.41 on A5X/A6X) lets you decide, per plugin, what it may touch. SuperTask needs three things, and Supernote asks you about each one the first time it is needed: the folder when you first open the plugin, Todoist when your tasks first load, and deleting only when you import a token file. Say no to any of them and the matching feature simply stops working."
         sections={[
-          ...PERMISSIONS.map(p => ({label: p.label, body: p.why})),
-          {label: 'In short', body: 'Every file SuperTask reads, saves, or deletes lives in one folder, MyStyle/SuperTask. Your notes and documents are never modified, uploaded, or deleted by it. The only place data goes is your own Todoist account. If you decline a permission and change your mind, use Allow missing on this screen.'},
+          ...PERMISSION_GROUPS.map(g => ({label: g.label, body: g.why})),
+          {label: 'In short', body: 'Every file SuperTask reads or saves lives in one folder, MyStyle/SuperTask, and the only thing it ever deletes is the token file after import. Your notes and documents are never modified, uploaded, or deleted by it. The only place data goes is your own Todoist account. If you said no and change your mind, use Allow missing on this screen.'},
         ]}
         onClose={() => setInfoSheet(null)}
       />
@@ -979,11 +996,23 @@ const s = StyleSheet.create({
     flexShrink: 1,
     marginTop: 6,
   },
-  permGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+  permList: {
     marginBottom: 8,
+  },
+  permRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#000000',
+  },
+  permRowLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#000000',
+    flexShrink: 1,
   },
   permChip: {
     borderWidth: 2,

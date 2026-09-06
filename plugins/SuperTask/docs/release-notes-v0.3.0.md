@@ -17,22 +17,25 @@ Supernote feel unreliable — this release was built to fix exactly that.
 ## Permissions — what SuperTask asks for, and why
 
 Supernote firmware **Chauvet 3.29.44** (Manta/Nomad) and **2.26.41**
-(A5X/A6X) let you decide, per plugin, what it may touch. The first time
-SuperTask starts on that firmware it asks for four permissions, one at a
-time. You can decline any of them; the matching feature simply stops
-working, and Settings > Setup > Permissions shows what is allowed with an
-**Allow missing** button if you change your mind.
+(A5X/A6X) let you decide, per plugin, what it may touch. Supernote asks
+with its own prompt, one permission at a time, so SuperTask does two
+things to keep that painless:
 
-| Permission | What SuperTask uses it for |
+1. **One explainer screen** the first time you open it: three plain-language
+   rows, each with a **Why?** you can expand, and a **Continue** button.
+2. **Asks only when needed.** Continue triggers the folder prompts; Todoist
+   access is asked for the first time your tasks load; deleting only when
+   you import a token file. Choose **Always allow** and each is asked once.
+
+| What SuperTask asks for | What it means |
 |---|---|
-| Read its own files | Its own folder, `MyStyle/SuperTask`: your settings, the list of tasks captured from notes, a cached task list, and the token file you sync there. Also checks a note still exists before jumping to it. Your notes and handwriting are never read through this permission. |
-| Save its own files | Settings, captured-task list, task cache, and a troubleshooting log — all inside `MyStyle/SuperTask`. Nothing is written anywhere else. |
-| Tidy up its own files | Deletes only its own files: the token file right after import (so it never sits in plain text), the previous log when the log rotates, its cache. Never notes or documents. |
-| Sync with Todoist | Talks to `api.todoist.com` to create, list, edit, and complete your tasks. Optionally streams the troubleshooting log to a computer on your own wifi if you set that up. Nothing is sent to the plugin author. |
+| **Remember your settings and captured tasks** | Its own folder, `MyStyle/SuperTask`: settings, the list of tasks captured from notes, a cached task list, and a troubleshooting log. Also checks a note still exists before jumping to it. Your notes, documents, and handwriting are never read, changed, or uploaded through this. *(Supernote calls this FILE:READ and FILE:WRITE.)* |
+| **Sync with Todoist** | Talks to `api.todoist.com`, and optionally to a log server you run on your own wifi. Nothing else, and nothing to the plugin author. *(INTERNET.)* |
+| **Clean up after itself** | Deletes the token file right after import so your token never sits in plain text. That is the only thing it deletes. *(FILE:DELETE.)* |
 
-Every file SuperTask reads, saves, or deletes lives in one folder. Note
-content is read only through Supernote's own plugin API when you lasso it,
-and only ever goes to your own Todoist account.
+Say no to any of them and the matching feature stops working; everything
+else keeps running. Settings > Setup > Permissions shows what is allowed,
+with an **Allow missing** button if you change your mind.
 
 ## Redesigned task list
 

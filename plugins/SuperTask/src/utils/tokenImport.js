@@ -22,6 +22,7 @@
 import {FileUtils} from 'sn-plugin-lib';
 import {log} from './debug';
 import {saveConfig} from './config';
+import {ensurePermissionGroup} from './permissions';
 
 const TOKEN_FILENAME = 'supertask-token.txt';
 
@@ -92,19 +93,29 @@ export async function importTokenFromFile() {
     const saved = await saveConfig({apiToken: token});
     log('TokenImport', `Token imported (${token.length} chars, saved=${saved})`);
 
-    // 5. Delete the plaintext file -- never leave a bare token lying around
+    // 5. Delete the plaintext file -- never leave a bare token lying around.
+    // This is the plugin's ONLY delete, so FILE:DELETE is asked for here,
+    // where the reason is self-evident (Chauvet 3.29.44).
     let deleted = false;
-    try {
-      deleted = await FileUtils.deleteFile(found);
-    } catch (e) {
-      log('TokenImport', `deleteFile failed: ${e.message}`);
+    let deniedDelete = false;
+    if (await ensurePermissionGroup('cleanup', {force: true})) {
+      try {
+        deleted = await FileUtils.deleteFile(found);
+      } catch (e) {
+        log('TokenImport', `deleteFile failed: ${e.message}`);
+      }
+    } else {
+      deniedDelete = true;
+      log('TokenImport', 'delete skipped: cleanup permission not granted');
     }
 
     return {
       ok: true,
       message: deleted
         ? 'Token imported and saved. The token file was deleted.'
-        : 'Token imported and saved. Could not delete the token file -- please remove it manually.',
+        : deniedDelete
+          ? `Token imported and saved. Deleting was not allowed, so ${TOKEN_FILENAME} is still in ${TOKEN_DIR_LABEL} -- remove it yourself, or allow "Clean up after itself" under Permissions.`
+          : 'Token imported and saved. Could not delete the token file -- please remove it manually.',
     };
   } catch (e) {
     log('TokenImport', `importTokenFromFile error: ${e.message}`);

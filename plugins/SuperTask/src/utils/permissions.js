@@ -1,65 +1,80 @@
 /**
- * Plugin permissions (SDK 0.1.65 / Chauvet 3.29.44 "plugin permission
- * management", SNDEV-70).
+ * Plugin permissions (Chauvet 3.29.44 / 2.26.41 "plugin permission
+ * management", sn-plugin-lib 0.1.65; SNDEV-70, SNDEV-71).
  *
- * The host grants permissions per plugin, on first use, through its own
- * dialog (Deny / Allow while in use / Always allow). Nothing is declared at
- * build time -- PluginConfig.json has no permission field -- so this module
- * is the plugin's whole permission story:
+ * The firmware grants permissions per plugin, one host dialog per permission
+ * (Deny / Allow while in use / Always allow). The SDK has no batch call and
+ * PluginConfig.json has no declaration, so the dialogs cannot be merged.
+ * What the plugin controls is WHEN each one fires and what the user has read
+ * beforehand. Design (Alex, 2026-09-06):
  *
- *   1. At startup, check each permission SuperTask actually uses and request
- *      the missing ones, in a fixed order, one dialog at a time.
- *   2. Log every state loudly. A denied FILE:WRITE looks like "device write
- *      failed" in Settings and a denied INTERNET looks like a network outage;
- *      the session log must say which it really was.
- *   3. Export the plain-language explanation of what each permission is used
- *      for, so Settings > Setup can show the same words the user sees here.
+ *   1. One explainer screen of ours on first launch (PermissionsIntro) with
+ *      three plain-language rows, each expandable to the full reason.
+ *   2. Just-in-time requests, grouped by the human concept, not the
+ *      technical name:
+ *        folder  = FILE:READ + FILE:WRITE  -> at Continue on the explainer
+ *        sync    = INTERNET                -> first Todoist/log-server call
+ *        cleanup = FILE:DELETE             -> first token import
+ *      So launch is two quick dialogs the user was just told about; the
+ *      others appear where the reason is self-evident.
+ *   3. Technical names appear only inside the expanded "why" text.
  *
- * Scope discipline (the reason each request is defensible): every file
- * SuperTask reads, writes, or deletes lives in MyStyle/SuperTask, except two
- * read-only existence checks on note paths before jumping to them. Note
- * content is read through the SDK's note APIs, not through file access.
+ * Scope discipline: every file SuperTask reads or writes lives in
+ * MyStyle/SuperTask, except two read-only exists() pre-flights on note paths.
+ * Persistence never deletes: atomic writes rename over the old file, the
+ * cache is invalidated by overwriting, the log rotates by copy+truncate. The
+ * only delete is the token file after import.
  *
  * States per SDK JSDoc: hasPermission 0 = not granted, 1 = granted;
- * requestPermission result 0 = denied, 1 = allow while in use, 2 = always.
- * The SDK lists FILE:WRITE, FILE:DELETE, and INTERNET; FILE:READ comes from
- * Ratta's review guidelines ("not granted by default"). The name is passed
- * straight through to the host, so an unknown name fails per-permission and
- * is logged, never fatal.
+ * requestPermission 0 = denied, 1 = allow while in use, 2 = always. FILE:READ
+ * is named by Ratta's review guidelines but not in the SDK JSDoc; it is
+ * passed through by name and an unknown name is logged, never fatal.
  */
 import {PluginManager} from 'sn-plugin-lib';
 import {log} from './debug';
 
-export const PERMISSIONS = [
+const READ = 'plugin.permission.FILE:READ';
+const WRITE = 'plugin.permission.FILE:WRITE';
+const DELETE = 'plugin.permission.FILE:DELETE';
+const INTERNET = 'plugin.permission.INTERNET';
+
+// Short display names for logs and technical footnotes
+const SHORT = {
+  [READ]: 'FILE:READ',
+  [WRITE]: 'FILE:WRITE',
+  [DELETE]: 'FILE:DELETE',
+  [INTERNET]: 'INTERNET',
+};
+
+/**
+ * The three things SuperTask asks for, in the words the user sees.
+ * `summary` is the one-liner under the row; `why` is the expanded text;
+ * `desc` is what the host shows if it re-prompts after a denial.
+ */
+export const PERMISSION_GROUPS = [
   {
-    key: 'plugin.permission.FILE:READ',
-    short: 'FILE:READ',
-    label: 'Read its own files',
-    // What the host shows if the user previously denied and we ask again.
-    desc: 'SuperTask reads its own folder, MyStyle/SuperTask: your saved settings, the list of tasks you captured from notes, and the token file you sync there for setup.',
-    // Full plain-language explanation for the Settings info sheet.
-    why: 'Reads only the MyStyle/SuperTask folder: your saved settings, the list of tasks you captured from notes, a cached copy of your task list, and the supertask-token.txt file you sync there during setup. It also checks that a note still exists before jumping to it. Your notes, documents, and handwriting are never read through this permission.',
+    id: 'folder',
+    label: 'Remember your settings and captured tasks',
+    summary: 'Uses one folder of its own, MyStyle/SuperTask. Nothing else.',
+    why: 'SuperTask keeps its settings, the list of tasks you captured from notes, a cached copy of your task list, and a troubleshooting log in its own folder, MyStyle/SuperTask, and reads them back when it opens. It also checks that a note still exists before jumping to it. It never reads, changes, or uploads your notes, documents, or handwriting through this; handwriting is only read through Supernote\'s own plugin feature when you lasso it. (Supernote calls this FILE:READ and FILE:WRITE.)',
+    permissions: [READ, WRITE],
+    desc: 'SuperTask keeps its settings and your captured-task list in its own folder, MyStyle/SuperTask. It does not touch your notes or documents.',
   },
   {
-    key: 'plugin.permission.FILE:WRITE',
-    short: 'FILE:WRITE',
-    label: 'Save its own files',
-    desc: 'SuperTask saves your settings, your captured-task list, and a troubleshooting log inside MyStyle/SuperTask. Nothing is written anywhere else.',
-    why: 'Saves your settings, your captured-task list, a cached copy of your task list, and a troubleshooting log, all inside MyStyle/SuperTask. Nothing is written outside that folder. Your token is stored obfuscated, not in plain text.',
-  },
-  {
-    key: 'plugin.permission.FILE:DELETE',
-    short: 'FILE:DELETE',
-    label: 'Tidy up its own files',
-    desc: 'SuperTask deletes only its own files in MyStyle/SuperTask: the synced token file after import, old log files, and its cache. Never your notes or documents.',
-    why: 'Deletes only files SuperTask created or that you placed in MyStyle/SuperTask for it: the supertask-token.txt file right after import (so your token never sits on the device in plain text), the previous log file when the log rotates, and its own task cache. It never deletes notes, documents, or anything outside its folder.',
-  },
-  {
-    key: 'plugin.permission.INTERNET',
-    short: 'INTERNET',
+    id: 'sync',
     label: 'Sync with Todoist',
-    desc: 'SuperTask talks to Todoist (api.todoist.com) to create, list, and complete your tasks. Nothing else is sent anywhere.',
-    why: 'Talks to Todoist (api.todoist.com) to create, list, edit, and complete your tasks, using the API token you provide. Optionally, if you set one up under Debugging, it can stream its troubleshooting log to a computer on your own wifi. No other data leaves the device, and nothing is sent to the plugin author.',
+    summary: 'Talks only to your own Todoist account.',
+    why: 'SuperTask connects to Todoist (api.todoist.com) to create, list, edit, and complete your tasks, using the API token you provide. If you set one up under Debugging, it can also stream its troubleshooting log to a computer on your own wifi. Nothing is sent anywhere else, and nothing is sent to the plugin author. (Supernote calls this INTERNET.)',
+    permissions: [INTERNET],
+    desc: 'SuperTask connects to Todoist (api.todoist.com) to sync your tasks. Nothing else is sent anywhere.',
+  },
+  {
+    id: 'cleanup',
+    label: 'Clean up after itself',
+    summary: 'Deletes only its own files, such as the token file after import.',
+    why: 'When you import your Todoist token from a file, SuperTask deletes that file right after reading it, so your token never sits on the device in plain text. That is the only thing it deletes. It never deletes notes, documents, or anything outside its own folder. (Supernote calls this FILE:DELETE.)',
+    permissions: [DELETE],
+    desc: 'SuperTask deletes the token file after importing it, so your token is not left in plain text. It never deletes notes or documents.',
   },
 ];
 
@@ -72,58 +87,93 @@ export function isPermissionApiAvailable() {
   return typeof PluginManager.hasPermission === 'function';
 }
 
-/**
- * Read-only snapshot of every permission's state, for Settings.
- * @returns {Promise<{supported: boolean, states: Record<string, number|null>}>}
- *   state 1 = granted, 0 = not granted, null = host returned an error
- *   (typically an unrecognised permission name).
- */
-export async function getPermissionStates() {
-  if (!isPermissionApiAvailable()) return {supported: false, states: {}};
-  const states = {};
-  for (const p of PERMISSIONS) {
-    try {
-      states[p.short] = unwrap(await PluginManager.hasPermission(p.key));
-    } catch (e) {
-      states[p.short] = null;
-      log('Perms', `${p.short} hasPermission failed: ${e.message}`);
-    }
+async function hasPerm(key) {
+  try {
+    return unwrap(await PluginManager.hasPermission(key));
+  } catch (e) {
+    log('Perms', `${SHORT[key]} hasPermission failed: ${e.message}`);
+    return null;
   }
-  return {supported: true, states};
 }
 
 /**
- * Startup guard: check each permission and request the missing ones. Runs
- * sequentially so the host shows one dialog at a time, in the order listed
- * above. Never throws.
- * @returns {Promise<{supported: boolean, states: Record<string, number|null>}>}
- *   post-request states in the same shape as getPermissionStates().
+ * Read-only snapshot for Settings and the explainer. Never shows a dialog.
+ * @returns {Promise<{supported: boolean, groups: Record<string, 'granted'|'missing'|'partial'|'unknown'>, states: Record<string, number|null>}>}
  */
-export async function ensureCorePermissions() {
-  if (!isPermissionApiAvailable()) {
-    log('Perms', 'permission API unavailable (SDK/firmware pre-0.1.65) -- nothing to check');
-    return {supported: false, states: {}};
-  }
+export async function getPermissionStates() {
+  if (!isPermissionApiAvailable()) return {supported: false, groups: {}, states: {}};
   const states = {};
-  for (const p of PERMISSIONS) {
+  const groups = {};
+  for (const g of PERMISSION_GROUPS) {
+    let granted = 0;
+    let unknown = 0;
+    for (const key of g.permissions) {
+      const st = await hasPerm(key);
+      states[SHORT[key]] = st;
+      if (st === 1) granted++;
+      else if (st === null) unknown++;
+    }
+    groups[g.id] =
+      granted === g.permissions.length ? 'granted'
+      : granted > 0 ? 'partial'
+      : unknown === g.permissions.length ? 'unknown'
+      : 'missing';
+  }
+  return {supported: true, groups, states};
+}
+
+// A group that was denied is not re-asked on every call that needs it --
+// once per process unless the caller forces (Settings > Allow missing,
+// the explainer's Continue). Denied features fail visibly on their own.
+const _askedThisProcess = new Set();
+
+/**
+ * Make sure a group is granted, asking the host for each missing
+ * permission in order (one dialog at a time). Never throws.
+ * @param {'folder'|'sync'|'cleanup'} id
+ * @param {{force?: boolean}} [opts]
+ * @returns {Promise<boolean>} true when every permission in the group is granted
+ */
+export async function ensurePermissionGroup(id, opts = {}) {
+  if (!isPermissionApiAvailable()) return true; // pre-permission firmware
+  const g = PERMISSION_GROUPS.find(x => x.id === id);
+  if (!g) return true;
+  let all = true;
+  for (const key of g.permissions) {
+    const has = await hasPerm(key);
+    if (has === 1) continue;
+    if (has === null) { all = false; continue; } // unknown name on this firmware
+    if (_askedThisProcess.has(key) && !opts.force) {
+      all = false;
+      continue;
+    }
+    _askedThisProcess.add(key);
     try {
-      const has = unwrap(await PluginManager.hasPermission(p.key));
-      log('Perms', `${p.short} hasPermission=${has}`);
-      if (has === 1) {
-        states[p.short] = 1;
-        continue;
-      }
-      const res = unwrap(await PluginManager.requestPermission(p.key, p.desc));
-      log('Perms', `${p.short} requestPermission -> ${res} (0=denied,1=while-in-use,2=always)`);
-      states[p.short] = res === 0 ? 0 : 1;
+      const res = unwrap(await PluginManager.requestPermission(key, g.desc));
+      log('Perms', `${SHORT[key]} requestPermission -> ${res} (0=denied,1=while-in-use,2=always) [group ${id}]`);
+      if (res === 0) all = false;
     } catch (e) {
-      // Unknown name on this firmware, or the dialog path threw. Log and
-      // move on -- the feature that needs it fails visibly on its own.
-      states[p.short] = null;
-      log('Perms', `${p.short} check/request failed: ${e.message}`);
+      log('Perms', `${SHORT[key]} requestPermission failed: ${e.message}`);
+      all = false;
     }
   }
-  const missing = PERMISSIONS.filter(p => states[p.short] !== 1).map(p => p.short);
-  log('Perms', missing.length ? `NOT GRANTED: ${missing.join(', ')}` : 'all permissions granted');
-  return {supported: true, states};
+  return all;
+}
+
+/**
+ * Startup: log every permission's state so a denied one is visible in the
+ * session log next to whatever fails because of it. No dialogs -- those
+ * belong to the explainer and the just-in-time call sites.
+ */
+export async function logPermissionStates() {
+  if (!isPermissionApiAvailable()) {
+    log('Perms', 'permission API unavailable (SDK/firmware pre-0.1.65) -- nothing to check');
+    return {supported: false, groups: {}, states: {}};
+  }
+  const snap = await getPermissionStates();
+  const parts = Object.entries(snap.states).map(([k, v]) => `${k}=${v}`);
+  log('Perms', `startup states: ${parts.join(' ')}`);
+  const missing = Object.entries(snap.groups).filter(([, s]) => s !== 'granted').map(([g, s]) => `${g}:${s}`);
+  log('Perms', missing.length ? `groups not fully granted: ${missing.join(', ')}` : 'all permission groups granted');
+  return snap;
 }

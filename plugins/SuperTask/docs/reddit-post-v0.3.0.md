@@ -26,12 +26,11 @@ SuperTask is a community plugin that turns handwriting into Todoist tasks withou
 
 **Built for the new firmware.** This build is against sn-plugin-lib 0.1.65 for **Chauvet 3.29.44** (Manta/Nomad) and **2.26.41** (A5X/A6X). If you're still on .43 / .40, update — Ratta pulled those for a sticker-data bug.
 
-**Permission model, in practice.** The first time SuperTask starts it asks for four permissions, one dialog at a time, each with a one-line reason:
+**Permission model, in practice.** The host shows one dialog per permission and the SDK has no batch call, so four cold prompts at launch was the default experience. SuperTask instead shows one explainer screen of its own (three plain-language rows, each with a "Why?" expander), then asks just-in-time:
 
-- **FILE:READ** — its own folder only, `MyStyle/SuperTask` (settings, captured-task list, cache, the token file), plus an `exists()` check on a note path before jumping to it. Note content goes through the SDK note APIs, never file access.
-- **FILE:WRITE** — same folder: settings, registry, cache, `logs/session.log`.
-- **FILE:DELETE** — its own files only: the token file after import, the old log on rotation, its cache.
-- **INTERNET** — `api.todoist.com`, plus an optional LAN log server you run yourself.
+- **Remember your settings and captured tasks** (FILE:READ + FILE:WRITE) — at Continue on the explainer. Its own folder only, `MyStyle/SuperTask`, plus an `exists()` check on a note path before jumping to it. Note content goes through the SDK note APIs, never file access.
+- **Sync with Todoist** (INTERNET) — the first time tasks load. `api.todoist.com`, plus an optional LAN log server you run yourself.
+- **Clean up after itself** (FILE:DELETE) — only when you import a token file; that is the plugin's single delete. Config, registry, and cache use rename-over-existing; the log rotates by copy-and-truncate.
 
 Settings > Setup > Permissions shows the state of each and re-prompts for anything denied. Two things other devs may find useful, both in the repo:
 
