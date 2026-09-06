@@ -440,7 +440,7 @@ export default function Config({onNavigate, nav}: Props) {
         <Section title="ACCOUNT & SYNC" first>
           <SettingRow
             label="Todoist API token"
-            hint="todoist.com/prefs/integrations > API token"
+            hint="Todoist: Settings > Integrations > Developer > API token"
             onInfo={() => setInfoSheet('token')}
             saved={savedRow === 'token'}>
             <View style={s.inputRow}>
@@ -792,7 +792,7 @@ export default function Config({onNavigate, nav}: Props) {
       <InfoSheet
         visible={infoSheet === 'token'}
         title="How to enter your API token"
-        intro={'1. Go to todoist.com/prefs/integrations and scroll to "API token" to find yours.\n\n2. Pick one of the options below. You only need to do this once: the token is saved on the device in an obscured form and survives reinstalls.'}
+        intro={'1. In Todoist, go to Settings > Integrations > Developer (todoist.com/prefs/integrations). Copy your API token, or issue a new one there.\n\n2. Pick one of the options below. You only need to do this once: the token is saved on the device in an obscured form and survives reinstalls.'}
         sections={[
           {label: 'Option 1. Sync a token file from the Supernote Partner app (recommended)', body: 'From your phone or computer, create a plain text file named **supertask-token.txt** containing only the token.\n\nEnsure a fresh sync after installing SuperTask, so the **MyStyle/SuperTask** folder appears in the Supernote Partner app. Then use the Partner app\'s **Import** feature to pick the file from your phone or computer and place it in that folder. Supernote Cloud or USB work too.\n\nClose this sheet. Once the file is in place, the **Import** button on the Setup page becomes available; tap it and SuperTask saves the token and deletes the file. Only that one folder is checked.'},
           {label: 'Option 2. Paste the token with a Bluetooth keyboard', body: 'Pair a Bluetooth keyboard (Supernote Settings > Bluetooth), tap the **Todoist API token** field on the Setup page, paste with Ctrl+V, then tap **Save**.\n\nAs a last resort, you can type the token into that field with the on-screen keyboard.'},
