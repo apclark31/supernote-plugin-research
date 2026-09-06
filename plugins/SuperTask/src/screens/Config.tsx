@@ -455,7 +455,7 @@ export default function Config({onNavigate, nav}: Props) {
 
           <SettingRow
             label="Import token from file"
-            hint={`Save your token as supertask-token.txt, put it in ${TOKEN_DIR_LABEL} (the folder SuperTask created on first run), then tap Import. The file is deleted after import. Tap ? for step-by-step instructions.`}
+            hint={`Put supertask-token.txt in ${TOKEN_DIR_LABEL}, then tap Import. Tap ? for steps.`}
             onInfo={() => setInfoSheet('token')}
             saved={savedRow === 'token'}>
             <View style={s.inputRow}>
@@ -770,12 +770,11 @@ export default function Config({onNavigate, nav}: Props) {
       <InfoSheet
         visible={infoSheet === 'token'}
         title="How to enter your API token"
-        intro={'Go to todoist.com/prefs/integrations and scroll to "API token" to find yours. You only need to do this once -- your token is saved to the device and persists across reinstalls.'}
+        intro={'1. Go to todoist.com/prefs/integrations and scroll to "API token" to find yours.\n\n2. Pick one of the options below. You only need to do this once: the token is saved on the device in an obscured form and survives reinstalls.'}
         sections={[
-          {label: '1. Sync a token file (easiest -- no cable)', body: 'On your phone: open todoist.com/prefs/integrations, copy the API token. Create a plain text file named supertask-token.txt containing ONLY the token (Notes app > share as file, or any text editor). Put it in the MyStyle/SuperTask folder on your Supernote -- the folder SuperTask created on first run, next to supertask-config.json -- using the Supernote Partner app, Supernote Cloud, or USB. Then tap Import. The plugin saves the token securely and deletes the file. Only that one folder is checked, never your other folders or notes.'},
-          {label: '2. Edit config via USB', body: 'A config file was created on your device at:\nMyStyle/SuperTask/supertask-config.json\n\nConnect your Supernote to a computer via USB, open the file in a text editor, and replace YOUR_TOKEN_HERE with your actual token. Save the file and reopen the plugin.\n\nYour plain text token will be automatically obfuscated the next time the plugin loads.'},
-          {label: '3. Bluetooth keyboard', body: 'Pair a Bluetooth keyboard (Supernote Settings > Bluetooth), then tap the token field, paste with Ctrl+V, and tap Save.'},
-          {label: '4. On-screen keyboard', body: 'Tap the token field and type the 40-character token using the on-screen keyboard. Slow, but you only need to do it once. Tap Save when done.'},
+          {label: 'Option 1. Sync a token file from the Supernote Partner app (recommended)', body: 'From your phone or computer, create a plain text file named **supertask-token.txt** containing only the token.\n\nPut it in the **MyStyle/SuperTask** folder on your Supernote using the Supernote Partner app, Supernote Cloud, or USB.\n\nThen tap **Import** above. SuperTask saves the token and deletes the file. Only that one folder is checked.'},
+          {label: 'Option 2. Paste or type it here', body: 'Pair a Bluetooth keyboard (Supernote Settings > Bluetooth), tap the token field, paste with Ctrl+V or type it, then tap **Save**. The on-screen keyboard works too, just slowly.'},
+          {label: 'Option 3. Edit the config file over USB (advanced)', body: 'Connect to a computer, open **MyStyle/SuperTask/supertask-config.json** in a text editor, replace the apiToken value with your token, save, and reopen the plugin. It is obscured on the next load.'},
         ]}
         onClose={() => setInfoSheet(null)}
       />

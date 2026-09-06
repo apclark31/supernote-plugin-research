@@ -189,6 +189,17 @@ export function CheckItem({
 
 export type InfoSheetSection = {label: string; body: string};
 
+// Minimal emphasis markup for sheet bodies: **like this** renders bold.
+// Kept deliberately tiny -- one marker, no nesting -- so copy stays
+// readable in source and the template stays a plain Text tree.
+function renderEmphasis(body: string): React.ReactNode {
+  const parts = body.split('**');
+  if (parts.length < 3) return body;
+  return parts.map((part, i) =>
+    i % 2 === 1 ? <Text key={i} style={st.sheetBold}>{part}</Text> : part,
+  );
+}
+
 export function InfoSheet({
   visible,
   title,
@@ -213,7 +224,7 @@ export function InfoSheet({
           <View key={i}>
             <View style={st.sheetRule} />
             <Text style={[st.sheetLabel, {fontSize: fs(15)}]}>{sec.label}</Text>
-            <Text style={[st.sheetBody, {fontSize: fs(14), lineHeight: fs(20)}]}>{sec.body}</Text>
+            <Text style={[st.sheetBody, {fontSize: fs(14), lineHeight: fs(20)}]}>{renderEmphasis(sec.body)}</Text>
           </View>
         ))}
         <Pressable style={st.sheetClose} onPress={onClose}>
@@ -406,6 +417,10 @@ const st = StyleSheet.create({
     fontSize: 14,
     color: '#222222',
     lineHeight: 20,
+  },
+  sheetBold: {
+    fontWeight: '700',
+    color: '#000000',
   },
   sheetClose: {
     marginTop: 16,
