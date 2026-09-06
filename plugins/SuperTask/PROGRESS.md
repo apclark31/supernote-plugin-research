@@ -11,7 +11,55 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## Status
 
+**Session 41 (2026-09-06) -- Chauvet 3.29.44 permission model, compliance record, bug/feature sweep, Reddit draft.** Firmware moved to 3.29.44 / 2.26.41 (.43/.40 pulled for sticker loss); npm confirms 0.1.65 is still the latest lib, pin stands. Build 1b on `sdk-0.1.65` (commits 24f0c49 + a9555ad): four-permission startup guard with plain-language rationales + Settings > Setup > Permissions row/sheet; token import confined to MyStyle/SuperTask; B-032 config-button-first; B-033 one-shot `invalidatePluginView()` after first paint (default on, Display toggle) + coalesced note-context commits; F-036 default project moved to Capturing Tasks with hidden-default warning; F-028 (?) on every settings section; F-037 Edit Task header/status polish (explicit Save kept). New Jira: **SNDEV-71** (T-009, Ratta review compliance, living record). Reddit post drafted at `docs/reddit-post-v0.3.0.md` -- HOLD until the device pass. **Nothing in build 1/1b has been on a device yet**; the 11-step plan on SNDEV-70 plus the Testing column (SNDEV-65, 37, 61, 69, 57, 28, 58) is the whole gate. Current .snplg: 2026-09-06 10:37.
+
 **Session 39 (2026-08-15) -- Testing triage + F-025 v2 select-then-commit completion.** Alex's 2026-08-02 on-device pass closed 21 of the 25 Testing items (device-confirmed passes, plus code-verified+soak closes for the unobservable stability fixes -- rationale on each ticket). The arm-then-confirm double tap was first refined (chip copy/target, 5s window), then **superseded the same session by Alex's design call**: the checkbox reads as *select*, and confirmation belongs above the list, not in the rows. Shipped as **SNDEV-67/F-043**: checkbox taps select (box fills, zero row shift); the TaskHome/ProjectView header band swaps its content to a contextual action bar ("N selected [Complete N] [Clear]" -> "Completed N [Undo] [OK]"); Undo reopens via the Done tab's endpoint; no timers anywhere. New `useTaskSelection` hook + `SelectionBar` component; TaskRow stripped of all arm state. SNDEV-34 closed (Done tab + reopen stays shipped; only the double tap replaced). Current .snplg: 2026-08-15 (~16:00, commit 83f6ea1). **CLOSED same-day after three on-device rounds with log-driven fixes: SNDEV-67 (F-043 selection flow -- incl. undo registry-write race + repaint-fingerprint reset) and SNDEV-49 (B-005 rename healing -- heal now per-data-load not per-process, note-jump joins in-flight heal and auto-retries, heal kicks from cache at mount, prefix-ordered probe).** New working principle from this round (saved to memory): *state changed -> user can see it changed* is an acceptance criterion; every repaint-dedup/cache/background task must wire its refresh path. **Later same day: SNDEV-66 (F-042) and SNDEV-60 (F-038) device-confirmed and closed. F-041 (SNDEV-65) implemented and in Testing (commit 89dcba4): text scale on TaskDetail/TaskAdd/QuickAdd/Capture + the three pickers; Diagnostics deliberately unscaled (11px monospace readouts); TaskList.tsx found to be DEAD CODE (unrouted since the TaskHome rewrite) -- deletion candidate. Testing queue: SNDEV-65 (F-041), SNDEV-37 (F-029 token import -- last item gating T-007/v0.3.0).** New backlog: SNDEV-65 (F-041 text-scale coverage), SNDEV-68 (F-044 completion state in ink -- checkmark write-back on note markers, companion to F-040). T-006/SNDEV-20 half-unblocked: bezel confirmed on dev A5X, external device pending.
+
+## SESSION 41 (2026-09-06) -- 3.29.44 permissions, compliance, sweep, Reddit draft
+
+Firmware context: Ratta replaced 3.29.43 / 2.26.40 with **3.29.44 / 2.26.41** ("plugin
+permission management"; the old build could lose sticker data on upgrade) and published
+a plugin **review process** for InkHub submissions (permissions must match function; no
+unauthorized data upload; source optional). `npm view` confirms sn-plugin-lib **0.1.65
+is still the latest** (2026-08-24); the .44 changelog's API list is identical to what
+session 40 scoped. No re-pin.
+
+1. **Permission guard extended** (`permissions.js`): FILE:READ, FILE:WRITE, FILE:DELETE,
+   INTERNET checked and requested sequentially with plain-language `desc` strings; every
+   state logged; unknown names non-fatal (SDK JSDoc lists only WRITE/DELETE/INTERNET --
+   READ comes from the review doc and is passed through by name). `initTaskCache` now
+   runs after the guard. No build-time declaration exists (PluginConfig.json has no
+   permission field) -- grants happen through the host dialog at first use, and the
+   release notes / Settings say so.
+2. **Settings > Setup > Permissions row**: status chip per permission, "Allow missing"
+   button, (?) sheet explaining exactly what each is used for and that everything lives
+   in MyStyle/SuperTask. Hidden on firmware without the API.
+3. **Token import scoped to MyStyle/SuperTask** (Alex): the six-root sweep was more
+   FILE:READ than one setup step deserves. One folder, top level, one filename. Copy
+   updated in the hint, the token sheet, and the release notes.
+4. **SNDEV-71 / T-009 created** -- living compliance record: permission table (Ratta
+   definition vs our use), review criteria vs status, open items (denied-state UX,
+   FILE:WRITE degradation, InkHub blurb, SuperHub parity, re-review trigger).
+5. **B-032**: `registerConfigButton()` first in index.js. **B-033**: the SDK's unwrapped
+   `NativePluginManager.invalidatePluginView()` fired once 150ms after TaskHome's first
+   content commit (`refreshOnOpen`, default on, Display toggle "Clear ghosting on open")
+   + registry read moved ahead of the element scan so noteCtx/registryNoteTasks commit
+   together.
+6. **F-036**: Default project row -> Capturing Tasks (own guard) + bordered warning when
+   the default is unticked under Show projects. **F-028**: `Section` gained `onInfo`;
+   sheets for Opening / Capturing / Projects / Debugging. **F-037**: TaskDetail header
+   band + "Saved HH:MM" status + 2px inputs + Save above Complete; explicit Save kept.
+7. **Reddit draft** `docs/reddit-post-v0.3.0.md` (r/Supernote body, r/Supernote_dev
+   short version, title options, screenshot list). Needs `<RELEASE_URL>` and a green
+   device pass before posting.
+8. Release notes gained Permissions + Firmware sections. tsc: 75 errors before and
+   after (all pre-existing SDK `Object` typings). Build clean.
+
+**Not done / decisions pending Alex:** which branch cuts the v0.3.0 GitHub release --
+the user group is on 3.29.44, so `sdk-0.1.65` is the candidate, but only after its
+first device pass; main (0.1.43) stays the fallback for older preview firmware. F-028
+TaskHome concepts (no (?) affordance on TaskHome today). SNDEV-18 (external user
+getElements) still needs their logs.
 
 ## SESSION 40 (2026-08-24) -- sn-plugin-lib 0.1.65: scoping + migration build 1
 
