@@ -29,7 +29,8 @@ things to keep that painless:
    will ask again next time, and **Don't allow** switches that part off. If
    you skip the screen, each part asks the first time you use it. If you
    ever chose Don't allow, Supernote sends you to its own plugin settings
-   page to change it.
+   page to change it. Uninstalling and reinstalling the plugin resets the
+   permissions, so an upgrade asks again.
 
 | What SuperTask asks for | What it means |
 |---|---|
