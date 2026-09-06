@@ -142,6 +142,33 @@ export async function getPermissionStates() {
 // the explainer's Continue). Denied features fail visibly on their own.
 const _askedThisProcess = new Set();
 
+// Concurrent callers share one host dialog. TaskHome's mount fires several
+// Todoist requests at once; without this the second caller saw
+// "_askedThisProcess" already set, returned false, and painted "Todoist
+// access not allowed" while the user was still tapping Always allow on the
+// dialog the first caller had opened (device 2026-09-06).
+const _inflight = new Map();
+
+function requestOnce(key, desc, id) {
+  if (_inflight.has(key)) return _inflight.get(key);
+  const p = (async () => {
+    try {
+      const res = unwrap(await PluginManager.requestPermission(key, desc));
+      log('Perms', `${SHORT[key]} requestPermission -> ${res} (0=denied,1=this-time-only,2=always,-1=closed) [group ${id}]`);
+      return res === 1 || res === 2;
+    } catch (e) {
+      // 1500 = not declared in PluginConfig.json uses-permissions; 1502 =
+      // name unsupported on this firmware. Either way: no dialog was shown.
+      log('Perms', `${SHORT[key]} requestPermission FAILED (no dialog shown): ${e.message}`);
+      return false;
+    } finally {
+      _inflight.delete(key);
+    }
+  })();
+  _inflight.set(key, p);
+  return p;
+}
+
 /**
  * Make sure a group is granted, asking the host for each missing
  * permission in order (one dialog at a time). Never throws.
@@ -158,21 +185,17 @@ export async function ensurePermissionGroup(id, opts = {}) {
     const has = await hasPerm(key);
     if (has === 1) continue;
     if (has === null) { all = false; continue; } // unknown name on this firmware
+    if (_inflight.has(key)) {
+      // Someone else already has the dialog up -- wait for that answer.
+      if (!(await _inflight.get(key))) all = false;
+      continue;
+    }
     if (_askedThisProcess.has(key) && !opts.force) {
       all = false;
       continue;
     }
     _askedThisProcess.add(key);
-    try {
-      const res = unwrap(await PluginManager.requestPermission(key, g.desc));
-      log('Perms', `${SHORT[key]} requestPermission -> ${res} (0=denied,1=this-time-only,2=always,-1=closed) [group ${id}]`);
-      if (res !== 1 && res !== 2) all = false;
-    } catch (e) {
-      // 1500 = not declared in PluginConfig.json uses-permissions; 1502 =
-      // name unsupported on this firmware. Either way: no dialog was shown.
-      log('Perms', `${SHORT[key]} requestPermission FAILED (no dialog shown): ${e.message}`);
-      all = false;
-    }
+    if (!(await requestOnce(key, g.desc, id))) all = false;
   }
   return all;
 }
