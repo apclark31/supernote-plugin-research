@@ -32,7 +32,11 @@ export default function SelectionBar({count, undoCount, busy, onComplete, onClea
 
   return (
     <View style={styles.bar}>
-      <Text style={[styles.label, {fontSize: Math.round(16 * scale)}]}>{label}</Text>
+      {/* Title-sized on purpose: the header band's height is set by its tallest
+          element, and in normal mode that is the 22px "SuperTask" title. A
+          16px label here made the band shrink when selection mode swapped in
+          (device 2026-09-06) -- the exact row shift F-043 promised not to cause. */}
+      <Text style={[styles.label, {fontSize: Math.round(22 * scale)}]} numberOfLines={1}>{label}</Text>
       <View style={styles.buttons}>
         {selecting ? (
           <>

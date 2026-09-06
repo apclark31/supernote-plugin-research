@@ -935,7 +935,10 @@ export default function TaskHome({nav, focusTab}: Props) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      {/* minHeight = title line box (22px * 1.3 line-height) + 16px padding
+          each side, so the band cannot change height when its content swaps
+          to the SelectionBar (F-043 no-shift rule; device 2026-09-06). */}
+      <View style={[styles.header, {minHeight: Math.round(22 * scale * 1.3) + 32}]}>
         {/* F-025 v2 / F-043: while selecting (or offering undo), the header
             band keeps its geometry and only its CONTENT swaps to the
             contextual action bar -- confirmation lives up here, never in
