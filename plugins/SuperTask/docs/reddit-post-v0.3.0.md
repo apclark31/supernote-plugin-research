@@ -22,9 +22,9 @@ It has been a while since the last release (v0.2.0 in June), and a lot has chang
 
 **Settings redesigned.** Both pages, General and Setup, are new. It opens to General, every change saves the moment you make it, and every section has a (?) that explains what it does in plain language. There is also a text size setting if you want things larger.
 
-**Easier setup.** No more typing a 40-character token on e-ink. Save it as a text file, sync it into the SuperTask folder with the Partner app, tap Import, and the file is deleted once the token is stored. Bluetooth keyboard and the on-screen keyboard still work if you prefer.
+**Easier setup.** There are a few different ways to pull in your Todoist API token now. The simplest: save it as a text file, sync it into the SuperTask folder with the Partner app, tap Import, and the file is deleted once the token is stored. A Bluetooth keyboard, the on-screen keyboard, or editing the config file over USB all still work too.
 
-**Jump to the note.** From any task, tap Note > and you land on the exact note and page it came from, using the new navigation the latest firmware added. Rename a note and the links repair themselves.
+**Jump to the note.** This is really what SuperTask is about: weaving your Todoist account into the notes on your device, so the things that matter are easy to find. From any task, tap Note > and you land on the exact note and page it was written on, using the navigation the latest firmware added. The On Device tab turns that into a way to move around your notes by what is in them. Rename a note and the links repair themselves.
 
 **Built for the new plugin firmware.** This release is for Chauvet 3.29.44 (Manta/Nomad) and 2.26.41 (A5X/A6X), which introduced per-plugin permissions. The first time SuperTask opens it shows one screen explaining exactly what each permission it asks for is used for, so you can see what it touches before you accept. Everything it saves lives in one folder, MyStyle/SuperTask, and the only place data goes is your own Todoist account.
 
