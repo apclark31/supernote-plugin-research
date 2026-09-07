@@ -1,7 +1,7 @@
 # r/Supernote_dev post draft — SuperTask v0.3.0
 
 > **DRAFT.** Post after the build 1i pass and the v0.3.0-beta GitHub release exist.
-> Replace `<RELEASE_URL>` with the release link. Screenshots to attach: Task Home with
+> Replace `https://github.com/apclark31/supernote-plugin-research/releases/tag/v0.3.0-beta` with the release link. Screenshots to attach: Task Home with
 > the This Note panel; the permissions explainer; Settings > General.
 
 ---
@@ -32,6 +32,6 @@ Plus a good deal of reliability work underneath: it opens instantly, copes with 
 
 **Install:** copy SuperTask.snplg to MyStyle, then Settings > Apps > Plugins > Install. If you are upgrading, uninstall the old version first; your token and settings carry over.
 
-**Download and full release notes:** <RELEASE_URL>
+**Download and full release notes:** https://github.com/apclark31/supernote-plugin-research/releases/tag/v0.3.0-beta
 
 Todoist only for now, and handwriting recognition is Supernote's own, so neat printing works best. Feedback very welcome, especially from A5X and A6X owners.
