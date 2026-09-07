@@ -18,6 +18,7 @@ import {View, Text, Pressable, StyleSheet, ScrollView} from 'react-native';
 import {PERMISSION_GROUPS, ensureAllPermissionGroups} from '../utils/permissions';
 import {useFontScale} from '../utils/useFontScale';
 import {log} from '../utils/debug';
+import {reloadGestureConfig} from '../utils/gestureDetector';
 
 type Props = {
   onDone: () => void;
@@ -34,6 +35,11 @@ export default function PermissionsIntro({onDone}: Props) {
     log('PermissionsIntro', 'Continue -> requesting all groups');
     try {
       await ensureAllPermissionGroups();
+      // Startup consumers of the config (gesture detector, debug URL, font
+      // scale) ran BEFORE this grant and got defaults because the file read
+      // was denied -- bezel swipe stayed off until a reboot (device
+      // 2026-09-06, build 1j). Re-read now that the folder is readable.
+      reloadGestureConfig();
     } finally {
       setBusy(false);
       onDone();

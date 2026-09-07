@@ -287,6 +287,7 @@ export default function Config({onNavigate, nav}: Props) {
         }
       }
       await refreshPermissions();
+      reloadGestureConfig(); // config may have been unreadable at startup (see PermissionsIntro)
     } finally {
       setPermBusy(false);
     }
