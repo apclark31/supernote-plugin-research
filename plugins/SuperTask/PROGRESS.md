@@ -17,8 +17,8 @@ Lasso-to-Todoist plugin for Supernote. Design doc: `docs/plugin-taskharvest-v2.m
 
 ## SESSION 41 (2026-09-06) -- 3.29.44 permissions, compliance, sweep, Reddit draft
 
-**RELEASED: v0.3.0-beta** (build 1j, .snplg 17:00, tag on main after fast-forward from
-`sdk-0.1.65`). Device-confirmed on Manta 3.29.44 across the day: permission explainer +
+**RELEASED: v0.3.0-beta** (re-cut on build 1k, .snplg 17:26, commit 4c0f8c1 -- 1j had B-036:
+bezel off until reboot on fresh installs; tag on main after fast-forward from `sdk-0.1.65`). Device-confirmed on Manta 3.29.44 across the day: permission explainer +
 four ordered prompts, token import, openFile + jumpToPage jumps, edge capture, ghosting,
 text scale, default-project warning, section sheets, Edit Task header, selection-bar
 height. Hidden for release: three-finger double tap (does not fire on 3.29.44, SNDEV-73).
