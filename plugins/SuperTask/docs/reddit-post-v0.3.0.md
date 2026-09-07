@@ -18,7 +18,7 @@ It has been a while since the last release (v0.2.0 in June), and a lot has chang
 
 **Task Home redesign.** The list is much easier to read at a glance: clean bordered tags for due date, priority, project, and page number. A **This Note** panel shows everything you have captured in the note you are in. An **On Device** tab groups tasks by note and folder. There is a **Done** tab, and completing is now select-then-confirm with an Undo, so a stray touch never finishes a task. It also remembers which tab you were on.
 
-**Gestures rebuilt for consistency.** The quick gestures now behave the same way every time. They are all opt-in, so nothing happens while you write unless you have turned it on: bezel swipe and three-finger double tap are both there in Settings if you want them. Long press on a captured task's box still opens it directly.
+**Gestures rebuilt for consistency.** The quick gestures now behave the same way every time. They are all opt-in, so nothing happens while you write unless you have turned it on: the bezel swipe is there in Settings if you want it. Long press on a captured task's box still opens it directly.
 
 **Settings redesigned.** Both pages, General and Setup, are new. It opens to General, every change saves the moment you make it, and every section has a (?) that explains what it does in plain language. There is also a text size setting if you want things larger.
 

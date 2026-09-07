@@ -75,7 +75,6 @@ with an **Allow missing** button if you change your mind.
   anything during normal writing. Long press on a linked task always works.
 - **New: bezel swipe** — swipe up from the bottom edge with 2+ fingers to
   open your tasks (enable it in Settings > Opening SuperTask).
-- **Three-finger double tap** is now a setting too (off by default).
 - Writing with your palm on the screen can no longer trigger anything —
   gestures ignore touches near pen activity entirely.
 - **Long press on task links is faster** on repeat presses.
@@ -114,6 +113,4 @@ firmware needs the previous SuperTask build (0.1.43 library).
 3. Your token and preferences carry over automatically (they live in
    `MyStyle/SuperTask/`, outside the plugin).
 
-*Note for existing users: quick-add and opener gestures are now opt-in — if
-you used the three-finger double tap, re-enable it in Settings > Opening
-SuperTask.*
+*Note for existing users: quick-add and opener gestures are now opt-in — enable the bezel swipe in Settings > Opening SuperTask if you want it. The three-finger double tap is temporarily unavailable on the new firmware.*

@@ -594,17 +594,8 @@ export default function Config({onNavigate, nav}: Props) {
             saved={savedRow === 'bezel'}
           />
 
-          <CheckRow
-            checked={threeFingerTapEnabled}
-            onToggle={() => {
-              const v = !threeFingerTapEnabled;
-              setThreeFingerTapEnabled(v);
-              applyChange('threeFinger', {threeFingerTapEnabled: v}, true);
-            }}
-            label="Three-finger double tap"
-            hint="Opens tasks -- anywhere on the page"
-            saved={savedRow === 'threeFinger'}
-          />
+          {/* Three-finger double tap row hidden 2026-09-06: does not fire on
+              3.29.44 (SNDEV-73). Detector forces it off; config key kept. */}
 
           <Text style={s.sectionNote}>Long press on a linked task always opens it.</Text>
         </Section>
@@ -844,7 +835,6 @@ export default function Config({onNavigate, nav}: Props) {
         sections={[
           {label: 'Toolbar button', body: 'Tap SuperTask in the note toolbar plugin menu. Always available; nothing to enable.'},
           {label: 'Bezel swipe (optional)', body: 'With two or more fingers, swipe up from the very bottom edge of the page, about a finger length. Off by default. It only counts when the swipe starts in the bottom edge zone, so ordinary scrolling and a resting hand do not trigger it.'},
-          {label: 'Three-finger double tap (optional)', body: 'Tap twice quickly with three fingers anywhere on the page. Off by default, because a palm landing on the screen can look like it. If you write with your hand on the screen, prefer the bezel swipe.'},
           {label: 'Long press on a task link', body: 'Hold one finger on the dashed box around a captured task for about a second to open that task directly. Always on -- it needs a link under your finger, so nothing accidental can fire it.'},
           {label: 'Pen cooldown', body: 'For 1.5 seconds after any pen contact, finger gestures are ignored. This is what stops your palm from opening SuperTask mid-sentence. Pause briefly after writing before you gesture.'},
           {label: 'Default tab', body: 'The tab SuperTask opens on. "Last opened" returns you to whatever tab you were on when you closed it.'},

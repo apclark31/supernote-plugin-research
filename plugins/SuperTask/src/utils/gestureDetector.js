@@ -413,7 +413,10 @@ function applyGestureConfig(config) {
   const input = config?.lassoGestureInput;
   _gestureMode = input === 'pen-lasso' ? 'pen-lasso' : input === 'finger' ? 'finger' : 'off';
   _bezelEnabled = config?.bezelSwipeEnabled === true;
-  _threeFingerEnabled = config?.threeFingerTapEnabled === true;
+  // Hidden 2026-09-06 (SNDEV-73 / B-035): the three-finger double tap does
+  // not fire on Chauvet 3.29.44. Forced off regardless of saved config and
+  // removed from Settings until it is fixed or formally retired (SNDEV-20).
+  _threeFingerEnabled = false && config?.threeFingerTapEnabled === true;
   if (_gestureMode === 'off') {
     cancelGesture();
   }
